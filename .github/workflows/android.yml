@@ -2,7 +2,8 @@ name: Build PC Music Keyboard APK
 
 on:
 push:
-branches: [main]
+branches:
+- main
 workflow_dispatch:
 
 jobs:
