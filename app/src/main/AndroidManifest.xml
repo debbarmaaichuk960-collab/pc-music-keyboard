@@ -1,5 +1,12 @@
+
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Voice typing permission -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Keyboard vibration permission -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:allowBackup="true"
@@ -10,10 +17,12 @@
         <activity
             android:name=".MainActivity"
             android:exported="true">
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
         </activity>
 
         <service
@@ -21,6 +30,7 @@
             android:label="PC Music Keyboard"
             android:permission="android.permission.BIND_INPUT_METHOD"
             android:exported="true">
+
             <intent-filter>
                 <action android:name="android.view.InputMethod" />
             </intent-filter>
@@ -28,7 +38,9 @@
             <meta-data
                 android:name="android.view.im"
                 android:resource="@xml/method" />
+
         </service>
 
     </application>
+
 </manifest>
