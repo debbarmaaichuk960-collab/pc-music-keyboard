@@ -29,6 +29,18 @@ public class PCKeyboardService extends InputMethodService {
     private boolean symbols = false;
     private boolean num = false;
     private boolean scr = false;
+    private String composingWord = "";
+
+private static final String[] WORDS = {
+    "about", "after", "again", "also", "and",
+    "because", "best", "can", "come", "do",
+    "for", "from", "get", "good", "have",
+    "hello", "help", "here", "how", "just",
+    "know", "like", "love", "make", "more",
+    "new", "now", "please", "the", "their",
+    "there", "this", "time", "today", "want",
+    "what", "when", "where", "with", "you", "your"
+};
 
     private static final int LIGHT = 0;
     private static final int DARK = 1;
@@ -137,6 +149,8 @@ public class PCKeyboardService extends InputMethodService {
 
         scroll.addView(toolbar);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, dp(40)));
+
+        addMobileSuggestionBar(root);
 
         LinearLayout board = new LinearLayout(this);
         board.setOrientation(LinearLayout.VERTICAL);
@@ -351,7 +365,70 @@ public class PCKeyboardService extends InputMethodService {
     private KeySpec simpleKey(String value) {
         return k(value, "", value, value, LIGHT, 1, null);
     }
+    private void addMobileSuggestionBar(LinearLayout parent) {
+    LinearLayout bar = new LinearLayout(this);
+    bar.setOrientation(LinearLayout.HORIZONTAL);
+    bar.setGravity(Gravity.CENTER);
+    bar.setPadding(dp(4), dp(2), dp(4), dp(2));
+    bar.setBackground(shape(
+            Color.rgb(24, 25, 29), 8, Color.rgb(55, 57, 63)));
 
+    int count = 0;
+    String prefix = composingWord.toLowerCase();
+
+    for (String word : WORDS) {
+        if (count >= 3) break;
+
+        if (!prefix.isEmpty()
+                && word.startsWith(prefix)
+                && !word.equals(prefix)) {
+
+            final String suggestion = word;
+
+            TextView item = new TextView(this);
+            item.setText(suggestion);
+            item.setTextColor(Color.WHITE);
+            item.setTextSize(13);
+            item.setTypeface(Typeface.DEFAULT_BOLD);
+            item.setGravity(Gravity.CENTER);
+
+            bar.addView(item,
+                    new LinearLayout.LayoutParams(0, -1, 1));
+
+            item.setOnClickListener(v -> applyWordSuggestion(suggestion));
+            count++;
+        }
+    }
+
+    if (count == 0) {
+        TextView hint = new TextView(this);
+        hint.setText(prefix.isEmpty()
+                ? "Word suggestions"
+                : "No suggestions");
+        hint.setTextColor(Color.LTGRAY);
+        hint.setTextSize(11);
+        hint.setGravity(Gravity.CENTER);
+        bar.addView(hint, new LinearLayout.LayoutParams(-1, -1));
+    }
+
+    LinearLayout.LayoutParams params =
+            new LinearLayout.LayoutParams(-1, dp(34));
+    params.bottomMargin = dp(4);
+    parent.addView(bar, params);
+}
+
+private void applyWordSuggestion(String word) {
+    InputConnection ic = getCurrentInputConnection();
+
+    if (ic == null || composingWord.isEmpty()) return;
+
+    ic.deleteSurroundingText(composingWord.length(), 0);
+
+    ic.commitText(word + " ", 1);
+
+    composingWord = "";
+    refresh();
+}
     private void addMobileRow(
             LinearLayout parent, KeySpec[] keys, int height) {
 
@@ -530,27 +607,44 @@ public class PCKeyboardService extends InputMethodService {
 
         String action = spec.action;
 
-        if (action == null) {
-            String value = currentLabel(spec);
-            if (!value.isEmpty()) {
-                ic.commitText(value, 1);
-            }
+if (action == null) {
+    String value = currentLabel(spec);
 
-            if (shift) {
-                shift = false;
-                refresh();
-            }
-            return;
+    if (!value.isEmpty()) {
+        ic.commitText(value, 1);
+
+        if (value.matches("[a-zA-Z']+")) {
+            composingWord += value;
+        } else {
+            composingWord = "";
         }
+    }
 
+    if (shift) {
+        shift = false;
+    }
+
+    refresh();
+    return;
+}
         switch (action) {
             case "BACKSPACE":
-                ic.deleteSurroundingText(1, 0);
-                break;
+    ic.deleteSurroundingText(1, 0);
+
+    if (!composingWord.isEmpty()) {
+        composingWord = composingWord.substring(
+                0, composingWord.length() - 1);
+    }
+
+    refresh();
+    break;
+
 
             case "SPACE":
-                ic.commitText(" ", 1);
-                break;
+    ic.commitText(" ", 1);
+    composingWord = "";
+    refresh();
+    break;
 
             case "TAB":
                 ic.commitText("\t", 1);
