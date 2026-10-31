@@ -1,3 +1,4 @@
+
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -7,12 +8,20 @@
     <!-- Keyboard vibration permission -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Voice recognition service visibility -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:label="PC Music Keyboard"
         android:theme="@style/AppTheme"
         android:supportsRtl="true">
 
+        <!-- Main app activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -24,6 +33,13 @@
 
         </activity>
 
+        <!-- Keyboard theme settings -->
+        <activity
+            android:name=".ThemeActivity"
+            android:exported="false"
+            android:label="Keyboard Theme" />
+
+        <!-- PC Music Keyboard input method -->
         <service
             android:name=".PCKeyboardService"
             android:label="PC Music Keyboard"
