@@ -1,4 +1,3 @@
-
 package com.pcmkeyboard.app;
 
 import android.inputmethodservice.InputMethodService;
@@ -6,9 +5,10 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.os.SystemClock;
 import android.view.Gravity;
-import android.view.View;
 import android.view.KeyEvent;
+import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.FrameLayout;
@@ -29,19 +29,24 @@ public class PCKeyboardService extends InputMethodService {
     private boolean symbols = false;
     private boolean num = false;
     private boolean scr = false;
+    private boolean ctrl = false;
+    private boolean alt = false;
+    private boolean altGr = false;
+    private boolean win = false;
+
     private String pcPanel = "main";
     private String composingWord = "";
 
-private static final String[] WORDS = {
-    "about", "after", "again", "also", "and",
-    "because", "best", "can", "come", "do",
-    "for", "from", "get", "good", "have",
-    "hello", "help", "here", "how", "just",
-    "know", "like", "love", "make", "more",
-    "new", "now", "please", "the", "their",
-    "there", "this", "time", "today", "want",
-    "what", "when", "where", "with", "you", "your"
-};
+    private static final String[] WORDS = {
+            "about", "after", "again", "also", "and",
+            "because", "best", "can", "come", "do",
+            "for", "from", "get", "good", "have",
+            "hello", "help", "here", "how", "just",
+            "know", "like", "love", "make", "more",
+            "new", "now", "please", "the", "their",
+            "there", "this", "time", "today", "want",
+            "what", "when", "where", "with", "you", "your"
+    };
 
     private static final int LIGHT = 0;
     private static final int DARK = 1;
@@ -51,7 +56,11 @@ private static final String[] WORDS = {
     private static final String KEY_LAYOUT = "keyboard_layout";
 
     private static class KeySpec {
-        String main, top, shifted, symbol, action;
+        String main;
+        String top;
+        String shifted;
+        String symbol;
+        String action;
         int type;
         float weight;
 
@@ -69,8 +78,7 @@ private static final String[] WORDS = {
 
     private KeySpec k(String main, String top, String shifted,
                       String symbol, int type, float weight, String action) {
-        return new KeySpec(main, top, shifted, symbol,
-                type, weight, action);
+        return new KeySpec(main, top, shifted, symbol, type, weight, action);
     }
 
     private int dp(float value) {
@@ -78,11 +86,11 @@ private static final String[] WORDS = {
     }
 
     private GradientDrawable shape(int color, int radius, int stroke) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(color);
-        d.setCornerRadius(dp(radius));
-        d.setStroke(dp(1), stroke);
-        return d;
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(dp(radius));
+        drawable.setStroke(dp(1), stroke);
+        return drawable;
     }
 
     @Override
@@ -93,8 +101,20 @@ private static final String[] WORDS = {
         if ("mobile".equals(layout)) {
             return createMobileKeyboard();
         }
-
         return createPcKeyboard();
+    }
+
+    @Override
+    public void onStartInput(EditorInfo attribute, boolean restarting) {
+        super.onStartInput(attribute, restarting);
+        if (!restarting) {
+            composingWord = "";
+            shift = false;
+            ctrl = false;
+            alt = false;
+            altGr = false;
+            win = false;
+        }
     }
 
     private void switchLayout(String layout) {
@@ -105,6 +125,11 @@ private static final String[] WORDS = {
 
         shift = false;
         symbols = false;
+        ctrl = false;
+        alt = false;
+        altGr = false;
+        win = false;
+        composingWord = "";
         refresh();
     }
 
@@ -128,36 +153,27 @@ private static final String[] WORDS = {
         addChip(toolbar, "× Close", DARK, () -> requestHideSelf(0));
         addChip(toolbar, "⇄ MOBILE", DARK, () -> switchLayout("mobile"));
         addChip(toolbar, "● PC ACTIVE", LIGHT, null);
-        addChip(toolbar, "MAIN",
-        pcPanel.equals("main") ? LIGHT : DARK,
-        () -> { pcPanel = "main"; refresh(); });
-
-addChip(toolbar, "F-KEYS",
-        pcPanel.equals("function") ? LIGHT : DARK,
-        () -> { pcPanel = "function"; refresh(); });
-
-addChip(toolbar, "NAV",
-        pcPanel.equals("navigation") ? LIGHT : DARK,
-        () -> { pcPanel = "navigation"; refresh(); });
-
-addChip(toolbar, "NUMPAD",
-        pcPanel.equals("numpad") ? LIGHT : DARK,
-        () -> { pcPanel = "numpad"; refresh(); });
-        addChip(toolbar, caps ? "● CAPS" : "CAPS",
-                caps ? LIGHT : DARK, () -> {
-                    caps = !caps;
-                    refresh();
-                });
-        addChip(toolbar, num ? "● NUM" : "NUM",
-                num ? LIGHT : DARK, () -> {
-                    num = !num;
-                    refresh();
-                });
-        addChip(toolbar, scr ? "● SCR" : "SCR",
-                scr ? LIGHT : DARK, () -> {
-                    scr = !scr;
-                    refresh();
-                });
+        addChip(toolbar, caps ? "● CAPS" : "CAPS", caps ? LIGHT : DARK, () -> {
+            caps = !caps;
+            InputConnection ic = getCurrentInputConnection();
+            if (ic != null) sendPcKey(ic, "CAPS_LOCK");
+            clearOneShotModifiers();
+            refresh();
+        });
+        addChip(toolbar, num ? "● NUM" : "NUM", num ? LIGHT : DARK, () -> {
+            num = !num;
+            InputConnection ic = getCurrentInputConnection();
+            if (ic != null) sendPcKey(ic, "NUM_LOCK");
+            clearOneShotModifiers();
+            refresh();
+        });
+        addChip(toolbar, scr ? "● SCR" : "SCR", scr ? LIGHT : DARK, () -> {
+            scr = !scr;
+            InputConnection ic = getCurrentInputConnection();
+            if (ic != null) sendPcKey(ic, "SCROLL_LOCK");
+            clearOneShotModifiers();
+            refresh();
+        });
         addChip(toolbar, "HHKB 60%", DARK, null);
         addChip(toolbar, "Holy Pandas", DARK, null);
         addChip(toolbar, "Black", DARK, null);
@@ -166,6 +182,22 @@ addChip(toolbar, "NUMPAD",
         scroll.addView(toolbar);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, dp(40)));
 
+        // Fixed PC keyboard panel buttons.
+        LinearLayout panelTabs = new LinearLayout(this);
+        panelTabs.setOrientation(LinearLayout.HORIZONTAL);
+        panelTabs.setGravity(Gravity.CENTER);
+        panelTabs.setPadding(dp(2), dp(2), dp(2), dp(2));
+
+        addPanelTab(panelTabs, "MAIN", "main");
+        addPanelTab(panelTabs, "F-KEYS", "function");
+        addPanelTab(panelTabs, "NAV", "navigation");
+        addPanelTab(panelTabs, "NUMPAD", "numpad");
+        addPanelTab(panelTabs, "MEDIA", "media");
+
+        LinearLayout.LayoutParams tabsParams =
+                new LinearLayout.LayoutParams(-1, dp(38));
+        tabsParams.bottomMargin = dp(4);
+        root.addView(panelTabs, tabsParams);
 
         LinearLayout board = new LinearLayout(this);
         board.setOrientation(LinearLayout.VERTICAL);
@@ -173,172 +205,208 @@ addChip(toolbar, "NUMPAD",
         board.setBackground(shape(frame, 10, Color.rgb(78, 80, 86)));
 
         if ("main".equals(pcPanel)) {
+            // Main number row, including the grave/tilde and Backspace keys.
+            addRow(board, new KeySpec[] {
+                    k("Esc", "", "", "", RED, 0.9f, "ESC"),
+                    k("`", "~", "~", "~", LIGHT, 0.8f, null),
+                    k("1", "!", "!", "!", LIGHT, 0.8f, null),
+                    k("2", "@", "@", "@", LIGHT, 0.8f, null),
+                    k("3", "#", "#", "#", LIGHT, 0.8f, null),
+                    k("4", "$", "$", "$", LIGHT, 0.8f, null),
+                    k("5", "%", "%", "%", LIGHT, 0.8f, null),
+                    k("6", "^", "^", "^", LIGHT, 0.8f, null),
+                    k("7", "&", "&", "&", LIGHT, 0.8f, null),
+                    k("8", "*", "*", "*", LIGHT, 0.8f, null),
+                    k("9", "(", "(", "(", LIGHT, 0.8f, null),
+                    k("0", ")", ")", ")", LIGHT, 0.8f, null),
+                    k("-", "_", "_", "_", LIGHT, 0.8f, null),
+                    k("=", "+", "+", "+", LIGHT, 0.8f, null),
+                    k("⌫", "", "", "", DARK, 1.25f, "BACKSPACE")
+            }, 47);
 
-        // Row 1
-        addRow(board, new KeySpec[] {
-            k("Esc","","","",RED,1.25f,"ESC"),
-            k("1","!","!","!",LIGHT,1,null),
-            k("2","@","@","@",LIGHT,1,null),
-            k("3","#","#","#",LIGHT,1,null),
-            k("4","$","$","$",LIGHT,1,null),
-            k("5","%","%","%",LIGHT,1,null),
-            k("6","^","^","^",LIGHT,1,null),
-            k("7","&","&","&",LIGHT,1,null),
-            k("8","*","*","*",LIGHT,1,null),
-            k("9","(","(","(",LIGHT,1,null),
-            k("0",")",")",")",LIGHT,1,null),
-            k("-","_","_","_",LIGHT,1,null),
-            k("=","+","+","+",LIGHT,1,null),
-            k("\\","|","|","|",LIGHT,1,null)
-        }, 47);
+            // QWERTY row, including the Backslash key.
+            addRow(board, new KeySpec[] {
+                    k("Tab", "", "", "", DARK, 1.25f, "TAB"),
+                    k("q", "", "Q", "@", LIGHT, 1, null),
+                    k("w", "", "W", "#", LIGHT, 1, null),
+                    k("e", "", "E", "$", LIGHT, 1, null),
+                    k("r", "", "R", "%", LIGHT, 1, null),
+                    k("t", "", "T", "&", LIGHT, 1, null),
+                    k("y", "", "Y", "-", LIGHT, 1, null),
+                    k("u", "", "U", "+", LIGHT, 1, null),
+                    k("i", "", "I", "(", LIGHT, 1, null),
+                    k("o", "", "O", ")", LIGHT, 1, null),
+                    k("p", "", "P", "*", LIGHT, 1, null),
+                    k("[", "{", "{", "{", LIGHT, 1, null),
+                    k("]", "}", "}", "}", LIGHT, 1, null),
+                    k("\\", "|", "|", "|", LIGHT, 1, null)
+            }, 48);
 
-        // Row 2
-        addRow(board, new KeySpec[] {
-            k("Tab","","","",DARK,1.35f,"TAB"),
-            k("q","","Q","@",LIGHT,1,null),
-            k("w","","W","#",LIGHT,1,null),
-            k("e","","E","$",LIGHT,1,null),
-            k("r","","R","%",LIGHT,1,null),
-            k("t","","T","&",LIGHT,1,null),
-            k("y","","Y","-",LIGHT,1,null),
-            k("u","","U","+",LIGHT,1,null),
-            k("i","","I","(",LIGHT,1,null),
-            k("o","","O",")",LIGHT,1,null),
-            k("p","","P","*",LIGHT,1,null),
-            k("[","{","{","{",LIGHT,1,null),
-            k("]", "}", "}", "}", LIGHT,1,null),
-            k("⌫","","","",DARK,1.55f,"BACKSPACE")
-        }, 48);
+            // Home row with a real Caps Lock key.
+            addRow(board, new KeySpec[] {
+                    k("Caps", "", "", "", DARK, 1.45f, "CAPS"),
+                    k("a", "", "A", "!", LIGHT, 1, null),
+                    k("s", "", "S", "\"", LIGHT, 1, null),
+                    k("d", "", "D", "'", LIGHT, 1, null),
+                    k("f", "", "F", ":", LIGHT, 1, null),
+                    k("g", "", "G", ";", LIGHT, 1, null),
+                    k("h", "", "H", "/", LIGHT, 1, null),
+                    k("j", "", "J", "?", LIGHT, 1, null),
+                    k("k", "", "K", "=", LIGHT, 1, null),
+                    k("l", "", "L", "_", LIGHT, 1, null),
+                    k(";", ":", ":", ":", LIGHT, 1, null),
+                    k("'", "\"", "\"", "\"", LIGHT, 1, null),
+                    k("Enter", "", "", "", RED, 1.55f, "ENTER")
+            }, 48);
 
-        // Row 3
-        addRow(board, new KeySpec[] {
-            k("Ctrl","","","",DARK,1.7f,"CTRL"),
-            k("a","","A","!",LIGHT,1,null),
-            k("s","","S","\"",LIGHT,1,null),
-            k("d","","D","'",LIGHT,1,null),
-            k("f","","F",":",LIGHT,1,null),
-            k("g","","G",";",LIGHT,1,null),
-            k("h","","H","/",LIGHT,1,null),
-            k("j","","J","?",LIGHT,1,null),
-            k("k","","K","=",LIGHT,1,null),
-            k("l","","L","_",LIGHT,1,null),
-            k(";",":",":",":",LIGHT,1,null),
-            k("'","\"","\"","\"",LIGHT,1,null),
-            k("Enter","","","",RED,1.8f,"ENTER")
-        }, 48);
+            // Bottom letter row with left and right Shift.
+            addRow(board, new KeySpec[] {
+                    k("Shift", "", "", "", DARK, 1.55f, "SHIFT"),
+                    k("z", "", "Z", "<", LIGHT, 1, null),
+                    k("x", "", "X", ">", LIGHT, 1, null),
+                    k("c", "", "C", "~", LIGHT, 1, null),
+                    k("v", "", "V", "^", LIGHT, 1, null),
+                    k("b", "", "B", "`", LIGHT, 1, null),
+                    k("n", "", "N", "[", LIGHT, 1, null),
+                    k("m", "", "M", "]", LIGHT, 1, null),
+                    k(",", "<", "<", "<", LIGHT, 1, null),
+                    k(".", ">", ">", ">", LIGHT, 1, null),
+                    k("/", "?", "?", "?", LIGHT, 1, null),
+                    k("Shift", "", "", "", DARK, 1.55f, "SHIFT")
+            }, 48);
 
-        // Row 4
-        addRow(board, new KeySpec[] {
-            k("Shift","","","",DARK,1.9f,"SHIFT"),
-            k("z","","Z","<",LIGHT,1,null),
-            k("x","","X",">",LIGHT,1,null),
-            k("c","","C","~",LIGHT,1,null),
-            k("v","","V","^",LIGHT,1,null),
-            k("b","","B","`",LIGHT,1,null),
-            k("n","","N","[",LIGHT,1,null),
-            k("m","","M","]",LIGHT,1,null),
-            k(",", "<", "<", "<", LIGHT,1,null),
-            k(".",">",">",">",LIGHT,1,null),
-            k("/","?","?","?",LIGHT,1,null),
-            k("Shift","","","",DARK,1.9f,"SHIFT"),
-            k("Fn","","","",DARK,0.85f,"FN")
-        }, 48);
+            // Full bottom modifier row: left/right Ctrl, Win, Alt, AltGr and Menu.
+            addRow(board, new KeySpec[] {
+                    k("Ctrl", "", "", "", DARK, 1.15f, "CTRL"),
+                    k("Win", "", "", "", DARK, 1.0f, "WIN"),
+                    k("Alt", "", "", "", DARK, 1.0f, "ALT"),
+                    k("", "", "", "", LIGHT, 3.4f, "SPACE"),
+                    k("AltGr", "", "", "", DARK, 1.0f, "ALTGR"),
+                    k("Win", "", "", "", DARK, 1.0f, "WIN"),
+                    k("Menu", "", "", "MENU", DARK, 1.0f, "PC_SEND"),
+                    k("Ctrl", "", "", "", DARK, 1.15f, "CTRL")
+            }, 49);
 
-        // Row 5
-        addRow(board, new KeySpec[] {
-            k("Alt","","","",DARK,1.15f,"ALT"),
-            k("Win","","","",DARK,1.15f,"WIN"),
-            k("","", "", "",LIGHT,5.2f,"SPACE"),
-            k("Win","","","",DARK,1.15f,"WIN"),
-            k("Alt","","","",DARK,1.15f,"ALT")
-        }, 49);
+        } else if ("function".equals(pcPanel)) {
+            addRow(board, new KeySpec[] {
+                    k("Print", "", "", "SYSRQ", DARK, 1.5f, "PC_SEND"),
+                    k("Scroll", "", "", "SCROLL_LOCK", DARK, 1.5f, "SCROLL_LOCK"),
+                    k("Pause", "", "", "BREAK", DARK, 1.5f, "PC_SEND")
+            }, 46);
 
+            addRow(board, new KeySpec[] {
+                    k("F1", "", "", "F1", LIGHT, 1, "PC_SEND"),
+                    k("F2", "", "", "F2", LIGHT, 1, "PC_SEND"),
+                    k("F3", "", "", "F3", LIGHT, 1, "PC_SEND"),
+                    k("F4", "", "", "F4", LIGHT, 1, "PC_SEND"),
+                    k("F5", "", "", "F5", LIGHT, 1, "PC_SEND"),
+                    k("F6", "", "", "F6", LIGHT, 1, "PC_SEND")
+            }, 48);
 
-} else if ("function".equals(pcPanel)) {
+            addRow(board, new KeySpec[] {
+                    k("F7", "", "", "F7", LIGHT, 1, "PC_SEND"),
+                    k("F8", "", "", "F8", LIGHT, 1, "PC_SEND"),
+                    k("F9", "", "", "F9", LIGHT, 1, "PC_SEND"),
+                    k("F10", "", "", "F10", LIGHT, 1, "PC_SEND"),
+                    k("F11", "", "", "F11", LIGHT, 1, "PC_SEND"),
+                    k("F12", "", "", "F12", LIGHT, 1, "PC_SEND")
+            }, 48);
 
-    // System keys
-    addRow(board, new KeySpec[] {
-        k("Print", "", "", "SYSRQ", DARK, 1.5f, "PC_SEND"),
-        k("Scroll", "", "", "SCROLL_LOCK", DARK, 1.5f, "PC_SEND"),
-        k("Pause", "", "", "BREAK", DARK, 1.5f, "PC_SEND")
-    }, 46);
+        } else if ("navigation".equals(pcPanel)) {
+            addRow(board, new KeySpec[] {
+                    k("Ins", "", "", "INSERT", DARK, 1, "PC_SEND"),
+                    k("Home", "", "", "MOVE_HOME", LIGHT, 1, "PC_SEND"),
+                    k("PgUp", "", "", "PAGE_UP", LIGHT, 1, "PC_SEND")
+            }, 46);
 
-    // F1 to F6
-    addRow(board, new KeySpec[] {
-        k("F1","","","F1",LIGHT,1,"PC_SEND"),
-        k("F2","","","F2",LIGHT,1,"PC_SEND"),
-        k("F3","","","F3",LIGHT,1,"PC_SEND"),
-        k("F4","","","F4",LIGHT,1,"PC_SEND"),
-        k("F5","","","F5",LIGHT,1,"PC_SEND"),
-        k("F6","","","F6",LIGHT,1,"PC_SEND")
-    }, 48);
+            addRow(board, new KeySpec[] {
+                    k("Del", "", "", "FORWARD_DEL", RED, 1, "PC_SEND"),
+                    k("End", "", "", "MOVE_END", LIGHT, 1, "PC_SEND"),
+                    k("PgDn", "", "", "PAGE_DOWN", LIGHT, 1, "PC_SEND")
+            }, 46);
 
-    // F7 to F12
-    addRow(board, new KeySpec[] {
-        k("F7","","","F7",LIGHT,1,"PC_SEND"),
-        k("F8","","","F8",LIGHT,1,"PC_SEND"),
-        k("F9","","","F9",LIGHT,1,"PC_SEND"),
-        k("F10","","","F10",LIGHT,1,"PC_SEND"),
-        k("F11","","","F11",LIGHT,1,"PC_SEND"),
-        k("F12","","","F12",LIGHT,1,"PC_SEND")
-    }, 48);
+            addRow(board, new KeySpec[] {
+                    k("←", "", "", "DPAD_LEFT", LIGHT, 1, "PC_SEND"),
+                    k("↓", "", "", "DPAD_DOWN", LIGHT, 1, "PC_SEND"),
+                    k("↑", "", "", "DPAD_UP", LIGHT, 1, "PC_SEND"),
+                    k("→", "", "", "DPAD_RIGHT", LIGHT, 1, "PC_SEND")
+            }, 48);
 
-} else if ("navigation".equals(pcPanel)) {
+        } else if ("numpad".equals(pcPanel)) {
+            addRow(board, new KeySpec[] {
+                    k("Num Lock", "", "", "NUM_LOCK", DARK, 1.5f, "NUM_LOCK"),
+                    k("/", "", "", "NUMPAD_DIVIDE", LIGHT, 1, "PC_SEND"),
+                    k("*", "", "", "NUMPAD_MULTIPLY", LIGHT, 1, "PC_SEND"),
+                    k("-", "", "", "NUMPAD_SUBTRACT", LIGHT, 1, "PC_SEND")
+            }, 46);
 
-    addRow(board, new KeySpec[] {
-        k("Ins","","","INSERT",DARK,1,"PC_SEND"),
-        k("Home","","","MOVE_HOME",LIGHT,1,"PC_SEND"),
-        k("PgUp","","","PAGE_UP",LIGHT,1,"PC_SEND")
-    }, 46);
+            addRow(board, new KeySpec[] {
+                    k("7", "", "", "NUMPAD_7", LIGHT, 1, "PC_SEND"),
+                    k("8", "", "", "NUMPAD_8", LIGHT, 1, "PC_SEND"),
+                    k("9", "", "", "NUMPAD_9", LIGHT, 1, "PC_SEND"),
+                    k("+", "", "", "NUMPAD_ADD", RED, 1, "PC_SEND")
+            }, 46);
 
-    addRow(board, new KeySpec[] {
-        k("Del","","","FORWARD_DEL",RED,1,"PC_SEND"),
-        k("End","","","MOVE_END",LIGHT,1,"PC_SEND"),
-        k("PgDn","","","PAGE_DOWN",LIGHT,1,"PC_SEND")
-    }, 46);
+            addRow(board, new KeySpec[] {
+                    k("4", "", "", "NUMPAD_4", LIGHT, 1, "PC_SEND"),
+                    k("5", "", "", "NUMPAD_5", LIGHT, 1, "PC_SEND"),
+                    k("6", "", "", "NUMPAD_6", LIGHT, 1, "PC_SEND"),
+                    k("Enter", "", "", "NUMPAD_ENTER", RED, 1, "PC_SEND")
+            }, 46);
 
-    addRow(board, new KeySpec[] {
-        k("←","","","DPAD_LEFT",LIGHT,1,"PC_SEND"),
-        k("↓","","","DPAD_DOWN",LIGHT,1,"PC_SEND"),
-        k("↑","","","DPAD_UP",LIGHT,1,"PC_SEND"),
-        k("→","","","DPAD_RIGHT",LIGHT,1,"PC_SEND")
-    }, 48);
+            addRow(board, new KeySpec[] {
+                    k("1", "", "", "NUMPAD_1", LIGHT, 1, "PC_SEND"),
+                    k("2", "", "", "NUMPAD_2", LIGHT, 1, "PC_SEND"),
+                    k("3", "", "", "NUMPAD_3", LIGHT, 1, "PC_SEND"),
+                    k("0", "", "", "NUMPAD_0", LIGHT, 1.5f, "PC_SEND"),
+                    k(".", "", "", "NUMPAD_DOT", LIGHT, 1, "PC_SEND")
+            }, 46);
+        } else if ("media".equals(pcPanel)) {
+            addRow(board, new KeySpec[] {
+                    k("Vol −", "", "", "VOLUME_DOWN", DARK, 1, "PC_SEND"),
+                    k("Mute", "", "", "VOLUME_MUTE", DARK, 1, "PC_SEND"),
+                    k("Vol +", "", "", "VOLUME_UP", DARK, 1, "PC_SEND")
+            }, 48);
 
-} else if ("numpad".equals(pcPanel)) {
+            addRow(board, new KeySpec[] {
+                    k("Previous", "", "", "MEDIA_PREVIOUS", LIGHT, 1, "PC_SEND"),
+                    k("Play / Pause", "", "", "MEDIA_PLAY_PAUSE", RED, 1.4f, "PC_SEND"),
+                    k("Stop", "", "", "MEDIA_STOP", LIGHT, 1, "PC_SEND"),
+                    k("Next", "", "", "MEDIA_NEXT", LIGHT, 1, "PC_SEND")
+            }, 48);
 
-    addRow(board, new KeySpec[] {
-        k("Num Lock","","","NUM_LOCK",DARK,1.5f,"NUM_LOCK"),
-        k("/","","","NUMPAD_DIVIDE",LIGHT,1,"PC_SEND"),
-        k("*","","","NUMPAD_MULTIPLY",LIGHT,1,"PC_SEND"),
-        k("-","","","NUMPAD_SUBTRACT",LIGHT,1,"PC_SEND")
-    }, 46);
-
-    addRow(board, new KeySpec[] {
-        k("7","","","NUMPAD_7",LIGHT,1,"PC_SEND"),
-        k("8","","","NUMPAD_8",LIGHT,1,"PC_SEND"),
-        k("9","","","NUMPAD_9",LIGHT,1,"PC_SEND"),
-        k("+","","","NUMPAD_ADD",RED,1,"PC_SEND")
-    }, 46);
-
-    addRow(board, new KeySpec[] {
-        k("4","","","NUMPAD_4",LIGHT,1,"PC_SEND"),
-        k("5","","","NUMPAD_5",LIGHT,1,"PC_SEND"),
-        k("6","","","NUMPAD_6",LIGHT,1,"PC_SEND"),
-        k("Enter","","","NUMPAD_ENTER",RED,1,"PC_SEND")
-    }, 46);
-
-    addRow(board, new KeySpec[] {
-        k("1","","","NUMPAD_1",LIGHT,1,"PC_SEND"),
-        k("2","","","NUMPAD_2",LIGHT,1,"PC_SEND"),
-        k("3","","","NUMPAD_3",LIGHT,1,"PC_SEND"),
-        k("0","","","NUMPAD_0",LIGHT,1.5f,"PC_SEND"),
-        k(".","","","NUMPAD_DOT",LIGHT,1,"PC_SEND")
-    }, 46);
-}
-
+            addRow(board, new KeySpec[] {
+                    k("Calculator", "", "", "CALCULATOR", LIGHT, 1.4f, "PC_SEND"),
+                    k("Search", "", "", "SEARCH", LIGHT, 1, "PC_SEND"),
+                    k("Mail", "", "", "ENVELOPE", LIGHT, 1, "PC_SEND"),
+                    k("Browser", "", "", "EXPLORER", LIGHT, 1.2f, "PC_SEND")
+            }, 48);
+        }
 
         root.addView(board, new LinearLayout.LayoutParams(-1, -2));
         return root;
+    }
+
+    private void addPanelTab(LinearLayout parent, String label, String panel) {
+        TextView tab = new TextView(this);
+        boolean selected = panel.equals(pcPanel);
+        tab.setText(label);
+        tab.setTextSize(10);
+        tab.setTypeface(Typeface.DEFAULT_BOLD);
+        tab.setGravity(Gravity.CENTER);
+        tab.setTextColor(selected ? Color.DKGRAY : Color.WHITE);
+        tab.setBackground(shape(selected ? whiteKey : darkKey, 7,
+                Color.rgb(24, 25, 29)));
+
+        LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(0, dp(32), 1f);
+        params.setMargins(dp(2), 0, dp(2), 0);
+        parent.addView(tab, params);
+
+        tab.setOnClickListener(v -> {
+            pcPanel = panel;
+            refresh();
+        });
     }
 
     // =====================================
@@ -361,21 +429,22 @@ addChip(toolbar, "NUMPAD",
         addChip(toolbar, "× Close", DARK, () -> requestHideSelf(0));
         addChip(toolbar, "● MOBILE ACTIVE", LIGHT, null);
         addChip(toolbar, "⇄ PC", DARK, () -> switchLayout("pc"));
-        addChip(toolbar, caps ? "● CAPS" : "CAPS",
-                caps ? LIGHT : DARK, () -> {
-                    caps = !caps;
-                    refresh();
-                });
-        addChip(toolbar, symbols ? "ABC" : "?123",
-                DARK, () -> {
-                    symbols = !symbols;
-                    refresh();
-                });
+        addChip(toolbar, caps ? "● CAPS" : "CAPS", caps ? LIGHT : DARK, () -> {
+            caps = !caps;
+            refresh();
+        });
+        addChip(toolbar, symbols ? "ABC" : "?123", DARK, () -> {
+            symbols = !symbols;
+            refresh();
+        });
 
         scroll.addView(toolbar);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, dp(40)));
 
-        addMobileSuggestionBar(root);
+        // Suggestions appear only on the normal letter keyboard.
+        if (!symbols) {
+            addMobileSuggestionBar(root);
+        }
 
         LinearLayout board = new LinearLayout(this);
         board.setOrientation(LinearLayout.VERTICAL);
@@ -384,75 +453,67 @@ addChip(toolbar, "NUMPAD",
                 Color.rgb(65, 67, 73)));
 
         if (!symbols) {
-            // QWERTY row
             addMobileRow(board, new KeySpec[] {
-                mobileLetter("q","1"), mobileLetter("w","2"),
-                mobileLetter("e","3"), mobileLetter("r","4"),
-                mobileLetter("t","5"), mobileLetter("y","6"),
-                mobileLetter("u","7"), mobileLetter("i","8"),
-                mobileLetter("o","9"), mobileLetter("p","0")
+                    mobileLetter("q", "1"), mobileLetter("w", "2"),
+                    mobileLetter("e", "3"), mobileLetter("r", "4"),
+                    mobileLetter("t", "5"), mobileLetter("y", "6"),
+                    mobileLetter("u", "7"), mobileLetter("i", "8"),
+                    mobileLetter("o", "9"), mobileLetter("p", "0")
             }, 44);
 
-            // Home row
             addMobileRow(board, new KeySpec[] {
-                mobileLetter("a","@"), mobileLetter("s","#"),
-                mobileLetter("d","$"), mobileLetter("f","%"),
-                mobileLetter("g","&"), mobileLetter("h","-"),
-                mobileLetter("j","+"), mobileLetter("k","("),
-                mobileLetter("l",")")
+                    mobileLetter("a", "@"), mobileLetter("s", "#"),
+                    mobileLetter("d", "$"), mobileLetter("f", "%"),
+                    mobileLetter("g", "&"), mobileLetter("h", "-"),
+                    mobileLetter("j", "+"), mobileLetter("k", "("),
+                    mobileLetter("l", ")")
             }, 44);
 
-            // Shift + bottom row + backspace
             addMobileRow(board, new KeySpec[] {
-                k("⇧","","","",DARK,1.5f,"SHIFT"),
-                mobileLetter("z","*"), mobileLetter("x","!"),
-                mobileLetter("c","\""), mobileLetter("v","'"),
-                mobileLetter("b",":"), mobileLetter("n",";"),
-                mobileLetter("m","?"),
-                k("⌫","","","",DARK,1.5f,"BACKSPACE")
+                    k("⇧", "", "", "", DARK, 1.5f, "SHIFT"),
+                    mobileLetter("z", "*"), mobileLetter("x", "!"),
+                    mobileLetter("c", "\""), mobileLetter("v", "'"),
+                    mobileLetter("b", ":"), mobileLetter("n", ";"),
+                    mobileLetter("m", "?"),
+                    k("⌫", "", "", "", DARK, 1.5f, "BACKSPACE")
             }, 44);
 
-            // Bottom control row
             addMobileRow(board, new KeySpec[] {
-                k("?123","","","",DARK,1.45f,"SYMBOLS"),
-                k(",","","",",",LIGHT,0.8f,null),
-                k("English","","","",LIGHT,4.0f,"SPACE"),
-                k(".","","",".",LIGHT,0.8f,null),
-                k("↵","","","",RED,1.35f,"ENTER")
+                    k("?123", "", "", "", DARK, 1.45f, "SYMBOLS"),
+                    k(",", "", "", ",", LIGHT, 0.8f, null),
+                    k("English", "", "", "", LIGHT, 4.0f, "SPACE"),
+                    k(".", "", "", ".", LIGHT, 0.8f, null),
+                    k("↵", "", "", "", RED, 1.35f, "ENTER")
             }, 47);
 
         } else {
-            // Number row
             addMobileRow(board, new KeySpec[] {
-                simpleKey("1"), simpleKey("2"), simpleKey("3"),
-                simpleKey("4"), simpleKey("5"), simpleKey("6"),
-                simpleKey("7"), simpleKey("8"), simpleKey("9"),
-                simpleKey("0")
+                    simpleKey("1"), simpleKey("2"), simpleKey("3"),
+                    simpleKey("4"), simpleKey("5"), simpleKey("6"),
+                    simpleKey("7"), simpleKey("8"), simpleKey("9"),
+                    simpleKey("0")
             }, 44);
 
-            // Symbols row
             addMobileRow(board, new KeySpec[] {
-                simpleKey("@"), simpleKey("#"), simpleKey("$"),
-                simpleKey("%"), simpleKey("&"), simpleKey("-"),
-                simpleKey("+"), simpleKey("("), simpleKey(")"),
-                simpleKey("/")
+                    simpleKey("@"), simpleKey("#"), simpleKey("$"),
+                    simpleKey("%"), simpleKey("&"), simpleKey("-"),
+                    simpleKey("+"), simpleKey("("), simpleKey(")"),
+                    simpleKey("/")
             }, 44);
 
-            // More symbols
             addMobileRow(board, new KeySpec[] {
-                simpleKey("="), simpleKey("*"), simpleKey("\""),
-                simpleKey("'"), simpleKey(":"), simpleKey(";"),
-                simpleKey("!"), simpleKey("?"),
-                k("⌫","","","",DARK,1.5f,"BACKSPACE")
+                    simpleKey("="), simpleKey("*"), simpleKey("\""),
+                    simpleKey("'"), simpleKey(":"), simpleKey(";"),
+                    simpleKey("!"), simpleKey("?"),
+                    k("⌫", "", "", "", DARK, 1.5f, "BACKSPACE")
             }, 44);
 
-            // Return to letters
             addMobileRow(board, new KeySpec[] {
-                k("ABC","","","",DARK,1.4f,"SYMBOLS"),
-                simpleKey(","),
-                k("English","","","",LIGHT,4.0f,"SPACE"),
-                simpleKey("."),
-                k("↵","","","",RED,1.35f,"ENTER")
+                    k("ABC", "", "", "", DARK, 1.4f, "SYMBOLS"),
+                    simpleKey(","),
+                    k("English", "", "", "", LIGHT, 4.0f, "SPACE"),
+                    simpleKey("."),
+                    k("↵", "", "", "", RED, 1.35f, "ENTER")
             }, 47);
         }
 
@@ -461,80 +522,74 @@ addChip(toolbar, "NUMPAD",
     }
 
     private KeySpec mobileLetter(String letter, String alternate) {
-        return k(letter, "", letter.toUpperCase(), alternate,
-                LIGHT, 1, null);
+        return k(letter, "", letter.toUpperCase(), alternate, LIGHT, 1, null);
     }
 
     private KeySpec simpleKey(String value) {
         return k(value, "", value, value, LIGHT, 1, null);
     }
+
     private void addMobileSuggestionBar(LinearLayout parent) {
-    LinearLayout bar = new LinearLayout(this);
-    bar.setOrientation(LinearLayout.HORIZONTAL);
-    bar.setGravity(Gravity.CENTER);
-    bar.setPadding(dp(4), dp(2), dp(4), dp(2));
-    bar.setBackground(shape(
-            Color.rgb(24, 25, 29), 8, Color.rgb(55, 57, 63)));
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER);
+        bar.setPadding(dp(4), dp(2), dp(4), dp(2));
+        bar.setBackground(shape(Color.rgb(24, 25, 29), 8,
+                Color.rgb(55, 57, 63)));
 
-    int count = 0;
-    String prefix = composingWord.toLowerCase();
+        int count = 0;
+        String prefix = composingWord.toLowerCase();
 
-    for (String word : WORDS) {
-        if (count >= 3) break;
+        for (String word : WORDS) {
+            if (count >= 3) {
+                break;
+            }
 
-        if (!prefix.isEmpty()
-                && word.startsWith(prefix)
-                && !word.equals(prefix)) {
+            if (!prefix.isEmpty() && word.startsWith(prefix)
+                    && !word.equals(prefix)) {
+                final String suggestion = word;
 
-            final String suggestion = word;
+                TextView item = new TextView(this);
+                item.setText(suggestion);
+                item.setTextColor(Color.WHITE);
+                item.setTextSize(13);
+                item.setTypeface(Typeface.DEFAULT_BOLD);
+                item.setGravity(Gravity.CENTER);
 
-            TextView item = new TextView(this);
-            item.setText(suggestion);
-            item.setTextColor(Color.WHITE);
-            item.setTextSize(13);
-            item.setTypeface(Typeface.DEFAULT_BOLD);
-            item.setGravity(Gravity.CENTER);
-
-            bar.addView(item,
-                    new LinearLayout.LayoutParams(0, -1, 1));
-
-            item.setOnClickListener(v -> applyWordSuggestion(suggestion));
-            count++;
+                bar.addView(item, new LinearLayout.LayoutParams(0, -1, 1));
+                item.setOnClickListener(v -> applyWordSuggestion(suggestion));
+                count++;
+            }
         }
+
+        if (count == 0) {
+            TextView hint = new TextView(this);
+            hint.setText(prefix.isEmpty() ? "Word suggestions" : "No suggestions");
+            hint.setTextColor(Color.LTGRAY);
+            hint.setTextSize(11);
+            hint.setGravity(Gravity.CENTER);
+            bar.addView(hint, new LinearLayout.LayoutParams(-1, -1));
+        }
+
+        LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(-1, dp(34));
+        params.bottomMargin = dp(4);
+        parent.addView(bar, params);
     }
 
-    if (count == 0) {
-        TextView hint = new TextView(this);
-        hint.setText(prefix.isEmpty()
-                ? "Word suggestions"
-                : "No suggestions");
-        hint.setTextColor(Color.LTGRAY);
-        hint.setTextSize(11);
-        hint.setGravity(Gravity.CENTER);
-        bar.addView(hint, new LinearLayout.LayoutParams(-1, -1));
+    private void applyWordSuggestion(String word) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null || composingWord.isEmpty()) {
+            return;
+        }
+
+        ic.deleteSurroundingText(composingWord.length(), 0);
+        ic.commitText(word + " ", 1);
+        composingWord = "";
+        refresh();
     }
 
-    LinearLayout.LayoutParams params =
-            new LinearLayout.LayoutParams(-1, dp(34));
-    params.bottomMargin = dp(4);
-    parent.addView(bar, params);
-}
-
-private void applyWordSuggestion(String word) {
-    InputConnection ic = getCurrentInputConnection();
-
-    if (ic == null || composingWord.isEmpty()) return;
-
-    ic.deleteSurroundingText(composingWord.length(), 0);
-
-    ic.commitText(word + " ", 1);
-
-    composingWord = "";
-    refresh();
-}
-    private void addMobileRow(
-            LinearLayout parent, KeySpec[] keys, int height) {
-
+    private void addMobileRow(LinearLayout parent, KeySpec[] keys, int height) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
@@ -548,10 +603,8 @@ private void applyWordSuggestion(String word) {
         for (KeySpec spec : keys) {
             FrameLayout shell = new FrameLayout(this);
 
-            int base = spec.type == LIGHT
-                    ? Color.rgb(105, 107, 113)
-                    : spec.type == RED
-                    ? Color.rgb(105, 12, 22)
+            int base = spec.type == LIGHT ? Color.rgb(105, 107, 113)
+                    : spec.type == RED ? Color.rgb(105, 12, 22)
                     : Color.rgb(25, 26, 30);
 
             int face = spec.type == LIGHT ? whiteKey
@@ -569,8 +622,7 @@ private void applyWordSuggestion(String word) {
             key.setTypeface(Typeface.DEFAULT_BOLD);
             key.setIncludeFontPadding(false);
             key.setTextSize(spec.main.length() > 4 ? 11 : 17);
-            key.setBackground(shape(face, 6,
-                    Color.rgb(150, 152, 158)));
+            key.setBackground(shape(face, 6, Color.rgb(150, 152, 158)));
 
             FrameLayout.LayoutParams faceParams =
                     new FrameLayout.LayoutParams(-1, -1);
@@ -604,10 +656,10 @@ private void applyWordSuggestion(String word) {
         int color = type == LIGHT ? whiteKey : darkKey;
         chip.setBackground(shape(color, 7, Color.rgb(24, 25, 29)));
 
-        LinearLayout.LayoutParams p =
+        LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(-2, dp(34));
-        p.setMargins(dp(2), 0, dp(2), 0);
-        parent.addView(chip, p);
+        params.setMargins(dp(2), 0, dp(2), 0);
+        parent.addView(chip, params);
 
         if (click != null) {
             chip.setOnClickListener(v -> click.run());
@@ -627,16 +679,16 @@ private void applyWordSuggestion(String word) {
         for (KeySpec spec : keys) {
             FrameLayout shell = new FrameLayout(this);
 
-            int base = spec.type == LIGHT
-                    ? Color.rgb(112, 114, 120)
-                    : spec.type == RED
-                    ? Color.rgb(105, 12, 22)
+            int base = spec.type == LIGHT ? Color.rgb(112, 114, 120)
+                    : spec.type == RED ? Color.rgb(105, 12, 22)
                     : Color.rgb(27, 28, 32);
 
-            int face = spec.type == LIGHT ? whiteKey
+            boolean active = isModifierActive(spec.action);
+            int face = active ? Color.rgb(255, 193, 7)
+                    : spec.type == LIGHT ? whiteKey
                     : spec.type == RED ? redKey : darkKey;
 
-            int foreground = spec.type == LIGHT
+            int foreground = active || spec.type == LIGHT
                     ? Color.rgb(35, 36, 41) : Color.WHITE;
 
             shell.setBackground(shape(base, 6, Color.rgb(19, 20, 23)));
@@ -647,8 +699,8 @@ private void applyWordSuggestion(String word) {
             content.setPadding(dp(2), dp(1), dp(2), dp(1));
             content.setBackground(shape(face, 4,
                     spec.type == LIGHT
-                    ? Color.rgb(190, 192, 198)
-                    : Color.rgb(35, 36, 40)));
+                            ? Color.rgb(190, 192, 198)
+                            : Color.rgb(35, 36, 40)));
 
             FrameLayout.LayoutParams faceParams =
                     new FrameLayout.LayoutParams(-1, -1);
@@ -676,7 +728,6 @@ private void applyWordSuggestion(String word) {
             main.setTypeface(Typeface.DEFAULT_BOLD);
             main.setIncludeFontPadding(false);
             main.setTextSize(label.length() > 3 ? 8 : 15);
-
             content.addView(main, new LinearLayout.LayoutParams(
                     -1, 0, hasTop ? 1.3f : 1f));
 
@@ -691,17 +742,110 @@ private void applyWordSuggestion(String word) {
     }
 
     private String currentLabel(KeySpec spec) {
-        if (spec.action != null) return spec.main;
-
+        if (spec.action != null) {
+            return spec.main;
+        }
         if (symbols && !spec.symbol.isEmpty()) {
             return spec.symbol;
         }
-
-        if ((shift || caps) && !spec.shifted.isEmpty()) {
+        boolean letterKey = spec.main.length() == 1
+                && Character.isLetter(spec.main.charAt(0));
+        // Caps Lock affects letters only; Shift also affects punctuation and numbers.
+        boolean useShift = letterKey ? (shift ^ caps) : shift;
+        if (useShift && !spec.shifted.isEmpty()) {
             return spec.shifted;
         }
-
         return spec.main;
+    }
+
+    private boolean hasOneShotModifier() {
+        return shift || ctrl || alt || altGr || win;
+    }
+
+    private boolean isModifierActive(String action) {
+        if (action == null) return false;
+        switch (action) {
+            case "SHIFT": return shift;
+            case "CTRL": return ctrl;
+            case "ALT": return alt;
+            case "ALTGR": return altGr;
+            case "WIN": return win;
+            case "CAPS": return caps;
+            case "NUM_LOCK": return num;
+            case "SCROLL_LOCK": return scr;
+            default: return false;
+        }
+    }
+
+    private int getModifierMetaState() {
+        int metaState = 0;
+        if (shift) metaState |= KeyEvent.META_SHIFT_ON;
+        if (ctrl) metaState |= KeyEvent.META_CTRL_ON;
+        if (alt) metaState |= KeyEvent.META_ALT_ON;
+        if (altGr) {
+            metaState |= KeyEvent.META_ALT_ON | KeyEvent.META_ALT_RIGHT_ON
+                    | KeyEvent.META_CTRL_ON;
+        }
+        if (win) metaState |= KeyEvent.META_META_ON;
+        if (caps) metaState |= KeyEvent.META_CAPS_LOCK_ON;
+        if (num) metaState |= KeyEvent.META_NUM_LOCK_ON;
+        if (scr) metaState |= KeyEvent.META_SCROLL_LOCK_ON;
+        return metaState;
+    }
+
+    private void clearOneShotModifiers() {
+        shift = false;
+        ctrl = false;
+        alt = false;
+        altGr = false;
+        win = false;
+    }
+
+    private void sendKeyCode(InputConnection ic, int keyCode) {
+        if (ic == null || keyCode == KeyEvent.KEYCODE_UNKNOWN) return;
+
+        long downTime = SystemClock.uptimeMillis();
+        int metaState = getModifierMetaState();
+        ic.sendKeyEvent(new KeyEvent(downTime, downTime,
+                KeyEvent.ACTION_DOWN, keyCode, 0, metaState));
+        ic.sendKeyEvent(new KeyEvent(downTime, SystemClock.uptimeMillis(),
+                KeyEvent.ACTION_UP, keyCode, 0, metaState));
+    }
+
+    private int keyCodeForText(String value) {
+        if (value == null || value.length() != 1) {
+            return KeyEvent.KEYCODE_UNKNOWN;
+        }
+
+        char ch = Character.toUpperCase(value.charAt(0));
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+            return KeyEvent.keyCodeFromString("KEYCODE_" + ch);
+        }
+
+        switch (ch) {
+            case '`': case '~': return KeyEvent.KEYCODE_GRAVE;
+            case '-': case '_': return KeyEvent.KEYCODE_MINUS;
+            case '=': case '+': return KeyEvent.KEYCODE_EQUALS;
+            case '[': case '{': return KeyEvent.KEYCODE_LEFT_BRACKET;
+            case ']': case '}': return KeyEvent.KEYCODE_RIGHT_BRACKET;
+            case '\\': case '|': return KeyEvent.KEYCODE_BACKSLASH;
+            case ';': case ':': return KeyEvent.KEYCODE_SEMICOLON;
+            case '\'': case '"': return KeyEvent.KEYCODE_APOSTROPHE;
+            case ',': case '<': return KeyEvent.KEYCODE_COMMA;
+            case '.': case '>': return KeyEvent.KEYCODE_PERIOD;
+            case '/': case '?': return KeyEvent.KEYCODE_SLASH;
+            default: return KeyEvent.KEYCODE_UNKNOWN;
+        }
+    }
+
+    private void sendPcKey(InputConnection ic, String keyName) {
+        if (ic == null || keyName == null || keyName.isEmpty()) return;
+
+        String normalized = keyName;
+        if ("PRINT_SCREEN".equals(normalized)) normalized = "SYSRQ";
+        if ("PAUSE".equals(normalized)) normalized = "BREAK";
+        int keyCode = KeyEvent.keyCodeFromString("KEYCODE_" + normalized);
+        sendKeyCode(ic, keyCode);
     }
 
     private void handleKey(KeySpec spec) {
@@ -710,61 +854,81 @@ private void applyWordSuggestion(String word) {
 
         String action = spec.action;
 
-if (action == null) {
-    String value = currentLabel(spec);
-
-    if (!value.isEmpty()) {
-        ic.commitText(value, 1);
-
-        if (value.matches("[a-zA-Z']+")) {
-            composingWord += value;
-        } else {
-            composingWord = "";
+        if (action == null) {
+            String value = currentLabel(spec);
+            if (!value.isEmpty()) {
+                if (ctrl || alt || altGr || win) {
+                    // For shortcuts, send the physical key with modifier metadata.
+                    int keyCode = keyCodeForText(spec.main);
+                    if (keyCode != KeyEvent.KEYCODE_UNKNOWN) {
+                        sendKeyCode(ic, keyCode);
+                    } else {
+                        ic.commitText(value, 1);
+                    }
+                    composingWord = "";
+                } else {
+                    ic.commitText(value, 1);
+                    if (value.matches("[a-zA-Z']+")) {
+                        composingWord += value;
+                    } else {
+                        composingWord = "";
+                    }
+                }
+            }
+            clearOneShotModifiers();
+            refresh();
+            return;
         }
-    }
 
-    if (shift) {
-        shift = false;
-    }
-
-    refresh();
-    return;
-}
         switch (action) {
             case "BACKSPACE":
-    ic.deleteSurroundingText(1, 0);
-
-    if (!composingWord.isEmpty()) {
-        composingWord = composingWord.substring(
-                0, composingWord.length() - 1);
-    }
-
-    refresh();
-    break;
-
+                if (hasOneShotModifier()) {
+                    sendKeyCode(ic, KeyEvent.KEYCODE_DEL);
+                } else {
+                    ic.deleteSurroundingText(1, 0);
+                }
+                if (!composingWord.isEmpty()) {
+                    composingWord = composingWord.substring(0,
+                            composingWord.length() - 1);
+                }
+                clearOneShotModifiers();
+                refresh();
+                break;
 
             case "SPACE":
-    ic.commitText(" ", 1);
-    composingWord = "";
-    refresh();
-    break;
+                if (hasOneShotModifier()) {
+                    sendKeyCode(ic, KeyEvent.KEYCODE_SPACE);
+                } else {
+                    ic.commitText(" ", 1);
+                }
+                composingWord = "";
+                clearOneShotModifiers();
+                refresh();
+                break;
 
             case "TAB":
-                ic.commitText("\t", 1);
+                sendKeyCode(ic, KeyEvent.KEYCODE_TAB);
+                clearOneShotModifiers();
+                refresh();
                 break;
 
             case "ENTER": {
-                EditorInfo info = getCurrentInputEditorInfo();
-                int actionId = info == null
-                        ? EditorInfo.IME_ACTION_NONE
-                        : info.imeOptions & EditorInfo.IME_MASK_ACTION;
-
-                if (actionId != EditorInfo.IME_ACTION_NONE
-                        && actionId != EditorInfo.IME_ACTION_UNSPECIFIED) {
-                    ic.performEditorAction(actionId);
+                if (hasOneShotModifier()) {
+                    sendKeyCode(ic, KeyEvent.KEYCODE_ENTER);
                 } else {
-                    ic.commitText("\n", 1);
+                    EditorInfo info = getCurrentInputEditorInfo();
+                    int actionId = info == null ? EditorInfo.IME_ACTION_NONE
+                            : info.imeOptions & EditorInfo.IME_MASK_ACTION;
+                    if (actionId != EditorInfo.IME_ACTION_NONE
+                            && actionId != EditorInfo.IME_ACTION_UNSPECIFIED) {
+                        ic.performEditorAction(actionId);
+                    } else {
+                        ic.commitText("\n", 1);
+                    }
                 }
+                composingWord = "";
+                clearOneShotModifiers();
+                refresh();
                 break;
             }
 
@@ -781,49 +945,61 @@ if (action == null) {
 
             case "CAPS":
                 caps = !caps;
+                sendPcKey(ic, "CAPS_LOCK");
+                clearOneShotModifiers();
                 refresh();
                 break;
 
-                case "PC_SEND":
-    sendPcKey(ic, spec.symbol);
-    break;
+            case "CTRL":
+                ctrl = !ctrl;
+                refresh();
+                break;
 
-case "NUM_LOCK":
-    num = !num;
-    sendPcKey(ic, "NUM_LOCK");
-    refresh();
-    break;
+            case "ALT":
+                alt = !alt;
+                refresh();
+                break;
+
+            case "ALTGR":
+                altGr = !altGr;
+                refresh();
+                break;
+
+            case "WIN":
+                win = !win;
+                refresh();
+                break;
+
+            case "PC_SEND":
+                sendPcKey(ic, spec.symbol);
+                clearOneShotModifiers();
+                refresh();
+                break;
+
+            case "NUM_LOCK":
+                num = !num;
+                sendPcKey(ic, "NUM_LOCK");
+                clearOneShotModifiers();
+                refresh();
+                break;
+
+            case "SCROLL_LOCK":
+                scr = !scr;
+                sendPcKey(ic, "SCROLL_LOCK");
+                clearOneShotModifiers();
+                refresh();
+                break;
 
             case "ESC":
-                ic.sendKeyEvent(new KeyEvent(
-                        KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ESCAPE));
-                ic.sendKeyEvent(new KeyEvent(
-                        KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ESCAPE));
+                sendPcKey(ic, "ESCAPE");
+                clearOneShotModifiers();
+                refresh();
                 break;
 
             default:
                 break;
         }
     }
-
-    private void sendPcKey(InputConnection ic, String keyName) {
-    if (ic == null || keyName == null || keyName.isEmpty()) {
-        return;
-    }
-
-    int keyCode = KeyEvent.keyCodeFromString(
-            "KEYCODE_" + keyName);
-
-    if (keyCode == KeyEvent.KEYCODE_UNKNOWN) {
-        return;
-    }
-
-    ic.sendKeyEvent(new KeyEvent(
-            KeyEvent.ACTION_DOWN, keyCode));
-
-    ic.sendKeyEvent(new KeyEvent(
-            KeyEvent.ACTION_UP, keyCode));
-}
 
     private void refresh() {
         setInputView(onCreateInputView());
