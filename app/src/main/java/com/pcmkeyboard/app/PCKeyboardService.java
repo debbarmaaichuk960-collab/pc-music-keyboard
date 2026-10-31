@@ -16,14 +16,17 @@ import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.ScrollView;
 
 public class PCKeyboardService extends InputMethodService {
 
-    private final int bg = Color.rgb(32, 33, 37);
-    private final int frame = Color.rgb(43, 45, 50);
-    private final int whiteKey = Color.rgb(239, 240, 244);
-    private final int darkKey = Color.rgb(70, 72, 78);
-    private final int redKey = Color.rgb(196, 25, 42);
+    private final int bg = Color.rgb(8, 15, 28);
+    private final int frame = Color.rgb(18, 30, 48);
+    private final int whiteKey = Color.rgb(225, 235, 246);
+    private final int darkKey = Color.rgb(39, 57, 80);
+    private final int redKey = Color.rgb(255, 103, 82);
+    private final int accent = Color.rgb(48, 215, 194);
+    private final int mutedText = Color.rgb(154, 174, 197);
 
     private boolean shift = false;
     private boolean caps = false;
@@ -118,14 +121,18 @@ public class PCKeyboardService extends InputMethodService {
         }
     }
 
-    /** Shows Android's system keyboard chooser so the user can select Gboard
-     * or any other keyboard that has been enabled in Android Settings. */
+    /** Opens Android's system IME chooser (for example, Gboard). */
     private void showSystemKeyboardPicker() {
+        // First try Android's direct next-IME switch. If there is no next
+        // enabled IME, fall back to the system chooser so the user can pick Gboard.
+        try {
+            if (switchToNextInputMethod(false)) return;
+        } catch (RuntimeException ignored) {
+            // Some OEM builds may reject direct switching; use the chooser below.
+        }
         InputMethodManager manager =
                 (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-        if (manager != null) {
-            manager.showInputMethodPicker();
-        }
+        if (manager != null) manager.showInputMethodPicker();
     }
 
     private void switchLayout(String layout) {
@@ -151,96 +158,83 @@ public class PCKeyboardService extends InputMethodService {
     private View createPcKeyboard() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(5), dp(5), dp(5), dp(7));
+        root.setPadding(dp(6), dp(5), dp(6), dp(5));
         root.setBackgroundColor(bg);
 
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
+        // Fixed, always-visible controls: the old horizontally scrolling toolbar
+        // could hide the switch buttons on smaller phones.
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(2), 0, dp(2), 0);
 
-        LinearLayout toolbar = new LinearLayout(this);
-        toolbar.setOrientation(LinearLayout.HORIZONTAL);
-        toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        TextView brand = new TextView(this);
+        brand.setText("PC MUSIC");
+        brand.setTextColor(Color.WHITE);
+        brand.setTextSize(13);
+        brand.setTypeface(Typeface.DEFAULT_BOLD);
+        brand.setLetterSpacing(0.06f);
+        header.addView(brand, new LinearLayout.LayoutParams(0, dp(36), 1f));
 
-        addChip(toolbar, "× Close", DARK, () -> requestHideSelf(0));
-        // Opens Android's own keyboard chooser (Gboard or another enabled IME).
-        addChip(toolbar, "🌐 SWITCH KB", DARK, this::showSystemKeyboardPicker);
-        // Switches to this app's built-in mobile QWERTY layout.
-        addChip(toolbar, "⇄ MOBILE", DARK, () -> switchLayout("mobile"));
-        addChip(toolbar, "● PC ACTIVE", LIGHT, null);
-        addChip(toolbar, caps ? "● CAPS" : "CAPS", caps ? LIGHT : DARK, () -> {
-            caps = !caps;
-            InputConnection ic = getCurrentInputConnection();
-            if (ic != null) sendPcKey(ic, "CAPS_LOCK");
-            clearOneShotModifiers();
-            refresh();
-        });
-        addChip(toolbar, num ? "● NUM" : "NUM", num ? LIGHT : DARK, () -> {
-            num = !num;
-            InputConnection ic = getCurrentInputConnection();
-            if (ic != null) sendPcKey(ic, "NUM_LOCK");
-            clearOneShotModifiers();
-            refresh();
-        });
-        addChip(toolbar, scr ? "● SCR" : "SCR", scr ? LIGHT : DARK, () -> {
-            scr = !scr;
-            InputConnection ic = getCurrentInputConnection();
-            if (ic != null) sendPcKey(ic, "SCROLL_LOCK");
-            clearOneShotModifiers();
-            refresh();
-        });
-        addChip(toolbar, "HHKB 60%", DARK, null);
-        addChip(toolbar, "Holy Pandas", DARK, null);
-        addChip(toolbar, "Black", DARK, null);
-        addChip(toolbar, "◖))", DARK, null);
+        addChip(header, "SYSTEM KB", LIGHT, this::showSystemKeyboardPicker);
+        addChip(header, "MOBILE", DARK, () -> switchLayout("mobile"));
+        addChip(header, "×", DARK, () -> requestHideSelf(0));
+        root.addView(header, new LinearLayout.LayoutParams(-1, dp(38)));
 
-        scroll.addView(toolbar);
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, dp(40)));
+        TextView subTitle = new TextView(this);
+        subTitle.setText("FULL PC LAYOUT  •  104+ KEY SET");
+        subTitle.setTextColor(mutedText);
+        subTitle.setTextSize(9);
+        subTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        subTitle.setGravity(Gravity.CENTER_VERTICAL);
+        subTitle.setPadding(dp(3), 0, 0, 0);
+        root.addView(subTitle, new LinearLayout.LayoutParams(-1, dp(18)));
 
-        // Fixed PC keyboard panel buttons.
         LinearLayout panelTabs = new LinearLayout(this);
         panelTabs.setOrientation(LinearLayout.HORIZONTAL);
         panelTabs.setGravity(Gravity.CENTER);
-        panelTabs.setPadding(dp(2), dp(2), dp(2), dp(2));
-
+        panelTabs.setPadding(0, dp(2), 0, dp(4));
         addPanelTab(panelTabs, "MAIN", "main");
-        addPanelTab(panelTabs, "F-KEYS", "function");
+        addPanelTab(panelTabs, "F1–F12", "function");
         addPanelTab(panelTabs, "NAV", "navigation");
-        addPanelTab(panelTabs, "NUMPAD", "numpad");
+        addPanelTab(panelTabs, "NUM", "numpad");
         addPanelTab(panelTabs, "MEDIA", "media");
+        addPanelTab(panelTabs, "EXTRA", "extra");
+        root.addView(panelTabs, new LinearLayout.LayoutParams(-1, dp(35)));
 
-        LinearLayout.LayoutParams tabsParams =
-                new LinearLayout.LayoutParams(-1, dp(38));
-        tabsParams.bottomMargin = dp(4);
-        root.addView(panelTabs, tabsParams);
+        // The keyboard itself scrolls vertically, so lower rows never disappear
+        // below the IME window on short phone screens.
+        ScrollView boardScroll = new ScrollView(this);
+        boardScroll.setFillViewport(false);
+        boardScroll.setVerticalScrollBarEnabled(false);
+        boardScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
         LinearLayout board = new LinearLayout(this);
         board.setOrientation(LinearLayout.VERTICAL);
-        board.setPadding(dp(3), dp(4), dp(3), dp(3));
-        board.setBackground(shape(frame, 10, Color.rgb(78, 80, 86)));
+        board.setPadding(dp(3), dp(4), dp(3), dp(5));
+        board.setBackground(shape(frame, 13, Color.rgb(42, 67, 91)));
 
         if ("main".equals(pcPanel)) {
-            // Main number row, including the grave/tilde and Backspace keys.
             addRow(board, new KeySpec[] {
-                    k("Esc", "", "", "", RED, 0.9f, "ESC"),
-                    k("`", "~", "~", "~", LIGHT, 0.8f, null),
-                    k("1", "!", "!", "!", LIGHT, 0.8f, null),
-                    k("2", "@", "@", "@", LIGHT, 0.8f, null),
-                    k("3", "#", "#", "#", LIGHT, 0.8f, null),
-                    k("4", "$", "$", "$", LIGHT, 0.8f, null),
-                    k("5", "%", "%", "%", LIGHT, 0.8f, null),
-                    k("6", "^", "^", "^", LIGHT, 0.8f, null),
-                    k("7", "&", "&", "&", LIGHT, 0.8f, null),
-                    k("8", "*", "*", "*", LIGHT, 0.8f, null),
-                    k("9", "(", "(", "(", LIGHT, 0.8f, null),
-                    k("0", ")", ")", ")", LIGHT, 0.8f, null),
-                    k("-", "_", "_", "_", LIGHT, 0.8f, null),
-                    k("=", "+", "+", "+", LIGHT, 0.8f, null),
+                    k("Esc", "", "", "", RED, 0.95f, "ESC"),
+                    k("`", "~", "~", "~", LIGHT, 0.78f, null),
+                    k("1", "!", "!", "!", LIGHT, 0.78f, null),
+                    k("2", "@", "@", "@", LIGHT, 0.78f, null),
+                    k("3", "#", "#", "#", LIGHT, 0.78f, null),
+                    k("4", "$", "$", "$", LIGHT, 0.78f, null),
+                    k("5", "%", "%", "%", LIGHT, 0.78f, null),
+                    k("6", "^", "^", "^", LIGHT, 0.78f, null),
+                    k("7", "&", "&", "&", LIGHT, 0.78f, null),
+                    k("8", "*", "*", "*", LIGHT, 0.78f, null),
+                    k("9", "(", "(", "(", LIGHT, 0.78f, null),
+                    k("0", ")", ")", ")", LIGHT, 0.78f, null),
+                    k("-", "_", "_", "_", LIGHT, 0.78f, null),
+                    k("=", "+", "+", "+", LIGHT, 0.78f, null),
                     k("⌫", "", "", "", DARK, 1.25f, "BACKSPACE")
-            }, 47);
+            }, 36);
 
-            // QWERTY row, including the Backslash key.
             addRow(board, new KeySpec[] {
-                    k("Tab", "", "", "", DARK, 1.25f, "TAB"),
+                    k("Tab", "", "", "", DARK, 1.22f, "TAB"),
                     k("q", "", "Q", "@", LIGHT, 1, null),
                     k("w", "", "W", "#", LIGHT, 1, null),
                     k("e", "", "E", "$", LIGHT, 1, null),
@@ -254,11 +248,10 @@ public class PCKeyboardService extends InputMethodService {
                     k("[", "{", "{", "{", LIGHT, 1, null),
                     k("]", "}", "}", "}", LIGHT, 1, null),
                     k("\\", "|", "|", "|", LIGHT, 1, null)
-            }, 48);
+            }, 37);
 
-            // Home row with a real Caps Lock key.
             addRow(board, new KeySpec[] {
-                    k("Caps", "", "", "", DARK, 1.45f, "CAPS"),
+                    k("Caps", "", "", "", DARK, 1.4f, "CAPS"),
                     k("a", "", "A", "!", LIGHT, 1, null),
                     k("s", "", "S", "\"", LIGHT, 1, null),
                     k("d", "", "D", "'", LIGHT, 1, null),
@@ -270,12 +263,11 @@ public class PCKeyboardService extends InputMethodService {
                     k("l", "", "L", "_", LIGHT, 1, null),
                     k(";", ":", ":", ":", LIGHT, 1, null),
                     k("'", "\"", "\"", "\"", LIGHT, 1, null),
-                    k("Enter", "", "", "", RED, 1.55f, "ENTER")
-            }, 48);
+                    k("Enter", "", "", "", RED, 1.5f, "ENTER")
+            }, 37);
 
-            // Bottom letter row with left and right Shift.
             addRow(board, new KeySpec[] {
-                    k("Shift", "", "", "", DARK, 1.55f, "SHIFT"),
+                    k("Shift", "", "", "", DARK, 1.5f, "SHIFT"),
                     k("z", "", "Z", "<", LIGHT, 1, null),
                     k("x", "", "X", ">", LIGHT, 1, null),
                     k("c", "", "C", "~", LIGHT, 1, null),
@@ -286,37 +278,30 @@ public class PCKeyboardService extends InputMethodService {
                     k(",", "<", "<", "<", LIGHT, 1, null),
                     k(".", ">", ">", ">", LIGHT, 1, null),
                     k("/", "?", "?", "?", LIGHT, 1, null),
-                    k("Shift", "", "", "", DARK, 1.55f, "SHIFT")
-            }, 48);
+                    k("Shift", "", "", "", DARK, 1.5f, "SHIFT")
+            }, 37);
 
-            // Full bottom modifier row: left/right Ctrl, Win, Alt, AltGr and Menu.
             addRow(board, new KeySpec[] {
-                    k("Ctrl", "", "", "", DARK, 1.15f, "CTRL"),
-                    k("Win", "", "", "", DARK, 1.0f, "WIN"),
-                    k("Alt", "", "", "", DARK, 1.0f, "ALT"),
-                    k("", "", "", "", LIGHT, 3.4f, "SPACE"),
+                    k("Ctrl", "", "", "", DARK, 1.05f, "CTRL"),
+                    k("Win", "", "", "", DARK, 0.9f, "WIN"),
+                    k("Alt", "", "", "", DARK, 0.9f, "ALT"),
+                    k("Space", "", "", "", LIGHT, 3.5f, "SPACE"),
                     k("AltGr", "", "", "", DARK, 1.0f, "ALTGR"),
-                    k("Win", "", "", "", DARK, 1.0f, "WIN"),
-                    k("Menu", "", "", "MENU", DARK, 1.0f, "PC_SEND"),
-                    k("Ctrl", "", "", "", DARK, 1.15f, "CTRL")
-            }, 49);
+                    k("Win", "", "", "", DARK, 0.9f, "WIN"),
+                    k("Menu", "", "", "MENU", DARK, 0.9f, "PC_SEND"),
+                    k("Ctrl", "", "", "", DARK, 1.05f, "CTRL")
+            }, 38);
 
         } else if ("function".equals(pcPanel)) {
             addRow(board, new KeySpec[] {
-                    k("Print", "", "", "SYSRQ", DARK, 1.5f, "PC_SEND"),
-                    k("Scroll", "", "", "SCROLL_LOCK", DARK, 1.5f, "SCROLL_LOCK"),
-                    k("Pause", "", "", "BREAK", DARK, 1.5f, "PC_SEND")
-            }, 46);
-
-            addRow(board, new KeySpec[] {
+                    k("Esc", "", "", "ESCAPE", RED, 1, "ESC"),
                     k("F1", "", "", "F1", LIGHT, 1, "PC_SEND"),
                     k("F2", "", "", "F2", LIGHT, 1, "PC_SEND"),
                     k("F3", "", "", "F3", LIGHT, 1, "PC_SEND"),
                     k("F4", "", "", "F4", LIGHT, 1, "PC_SEND"),
                     k("F5", "", "", "F5", LIGHT, 1, "PC_SEND"),
                     k("F6", "", "", "F6", LIGHT, 1, "PC_SEND")
-            }, 48);
-
+            }, 39);
             addRow(board, new KeySpec[] {
                     k("F7", "", "", "F7", LIGHT, 1, "PC_SEND"),
                     k("F8", "", "", "F8", LIGHT, 1, "PC_SEND"),
@@ -324,80 +309,110 @@ public class PCKeyboardService extends InputMethodService {
                     k("F10", "", "", "F10", LIGHT, 1, "PC_SEND"),
                     k("F11", "", "", "F11", LIGHT, 1, "PC_SEND"),
                     k("F12", "", "", "F12", LIGHT, 1, "PC_SEND")
-            }, 48);
+            }, 39);
+            addRow(board, new KeySpec[] {
+                    k("Print Screen", "", "", "SYSRQ", DARK, 1.5f, "PC_SEND"),
+                    k("Scroll Lock", "", "", "SCROLL_LOCK", DARK, 1.5f, "SCROLL_LOCK"),
+                    k("Pause / Break", "", "", "BREAK", DARK, 1.5f, "PC_SEND")
+            }, 39);
 
         } else if ("navigation".equals(pcPanel)) {
             addRow(board, new KeySpec[] {
-                    k("Ins", "", "", "INSERT", DARK, 1, "PC_SEND"),
+                    k("Insert", "", "", "INSERT", DARK, 1, "PC_SEND"),
                     k("Home", "", "", "MOVE_HOME", LIGHT, 1, "PC_SEND"),
-                    k("PgUp", "", "", "PAGE_UP", LIGHT, 1, "PC_SEND")
-            }, 46);
-
+                    k("Page Up", "", "", "PAGE_UP", LIGHT, 1, "PC_SEND")
+            }, 40);
             addRow(board, new KeySpec[] {
-                    k("Del", "", "", "FORWARD_DEL", RED, 1, "PC_SEND"),
+                    k("Delete", "", "", "FORWARD_DEL", RED, 1, "PC_SEND"),
                     k("End", "", "", "MOVE_END", LIGHT, 1, "PC_SEND"),
-                    k("PgDn", "", "", "PAGE_DOWN", LIGHT, 1, "PC_SEND")
-            }, 46);
-
+                    k("Page Down", "", "", "PAGE_DOWN", LIGHT, 1, "PC_SEND")
+            }, 40);
             addRow(board, new KeySpec[] {
                     k("←", "", "", "DPAD_LEFT", LIGHT, 1, "PC_SEND"),
                     k("↓", "", "", "DPAD_DOWN", LIGHT, 1, "PC_SEND"),
                     k("↑", "", "", "DPAD_UP", LIGHT, 1, "PC_SEND"),
                     k("→", "", "", "DPAD_RIGHT", LIGHT, 1, "PC_SEND")
-            }, 48);
+            }, 42);
 
         } else if ("numpad".equals(pcPanel)) {
             addRow(board, new KeySpec[] {
                     k("Num Lock", "", "", "NUM_LOCK", DARK, 1.5f, "NUM_LOCK"),
                     k("/", "", "", "NUMPAD_DIVIDE", LIGHT, 1, "PC_SEND"),
                     k("*", "", "", "NUMPAD_MULTIPLY", LIGHT, 1, "PC_SEND"),
-                    k("-", "", "", "NUMPAD_SUBTRACT", LIGHT, 1, "PC_SEND")
-            }, 46);
-
+                    k("−", "", "", "NUMPAD_SUBTRACT", LIGHT, 1, "PC_SEND")
+            }, 41);
             addRow(board, new KeySpec[] {
                     k("7", "", "", "NUMPAD_7", LIGHT, 1, "PC_SEND"),
                     k("8", "", "", "NUMPAD_8", LIGHT, 1, "PC_SEND"),
                     k("9", "", "", "NUMPAD_9", LIGHT, 1, "PC_SEND"),
                     k("+", "", "", "NUMPAD_ADD", RED, 1, "PC_SEND")
-            }, 46);
-
+            }, 41);
             addRow(board, new KeySpec[] {
                     k("4", "", "", "NUMPAD_4", LIGHT, 1, "PC_SEND"),
                     k("5", "", "", "NUMPAD_5", LIGHT, 1, "PC_SEND"),
                     k("6", "", "", "NUMPAD_6", LIGHT, 1, "PC_SEND"),
                     k("Enter", "", "", "NUMPAD_ENTER", RED, 1, "PC_SEND")
-            }, 46);
-
+            }, 41);
             addRow(board, new KeySpec[] {
                     k("1", "", "", "NUMPAD_1", LIGHT, 1, "PC_SEND"),
                     k("2", "", "", "NUMPAD_2", LIGHT, 1, "PC_SEND"),
                     k("3", "", "", "NUMPAD_3", LIGHT, 1, "PC_SEND"),
-                    k("0", "", "", "NUMPAD_0", LIGHT, 1.5f, "PC_SEND"),
+                    k("0", "", "", "NUMPAD_0", LIGHT, 2, "PC_SEND"),
                     k(".", "", "", "NUMPAD_DOT", LIGHT, 1, "PC_SEND")
-            }, 46);
+            }, 41);
+
         } else if ("media".equals(pcPanel)) {
             addRow(board, new KeySpec[] {
                     k("Vol −", "", "", "VOLUME_DOWN", DARK, 1, "PC_SEND"),
                     k("Mute", "", "", "VOLUME_MUTE", DARK, 1, "PC_SEND"),
                     k("Vol +", "", "", "VOLUME_UP", DARK, 1, "PC_SEND")
-            }, 48);
-
+            }, 41);
             addRow(board, new KeySpec[] {
                     k("Previous", "", "", "MEDIA_PREVIOUS", LIGHT, 1, "PC_SEND"),
                     k("Play / Pause", "", "", "MEDIA_PLAY_PAUSE", RED, 1.4f, "PC_SEND"),
                     k("Stop", "", "", "MEDIA_STOP", LIGHT, 1, "PC_SEND"),
                     k("Next", "", "", "MEDIA_NEXT", LIGHT, 1, "PC_SEND")
-            }, 48);
-
+            }, 41);
             addRow(board, new KeySpec[] {
-                    k("Calculator", "", "", "CALCULATOR", LIGHT, 1.4f, "PC_SEND"),
+                    k("Calculator", "", "", "CALCULATOR", LIGHT, 1.2f, "PC_SEND"),
                     k("Search", "", "", "SEARCH", LIGHT, 1, "PC_SEND"),
                     k("Mail", "", "", "ENVELOPE", LIGHT, 1, "PC_SEND"),
                     k("Browser", "", "", "EXPLORER", LIGHT, 1.2f, "PC_SEND")
-            }, 48);
+            }, 41);
+
+        } else if ("extra".equals(pcPanel)) {
+            addRow(board, new KeySpec[] {
+                    k("Left Ctrl", "", "", "", DARK, 1.25f, "CTRL"),
+                    k("Right Ctrl", "", "", "", DARK, 1.25f, "CTRL")
+            }, 40);
+            addRow(board, new KeySpec[] {
+                    k("Left Alt", "", "", "", DARK, 1.25f, "ALT"),
+                    k("Right Alt", "", "", "", DARK, 1.25f, "ALT"),
+                    k("AltGr", "", "", "", DARK, 1.1f, "ALTGR")
+            }, 40);
+            addRow(board, new KeySpec[] {
+                    k("Menu / Apps", "", "", "MENU", DARK, 1.5f, "PC_SEND"),
+                    k("Help", "", "", "HELP", LIGHT, 1, "PC_SEND"),
+                    k("Sleep", "", "", "SLEEP", DARK, 1, "PC_SEND"),
+                    k("Wake", "", "", "WAKEUP", DARK, 1, "PC_SEND")
+            }, 40);
+            addRow(board, new KeySpec[] {
+                    k("Tab", "", "", "", DARK, 1, "TAB"),
+                    k("Esc", "", "", "", RED, 1, "ESC"),
+                    k("Backspace", "", "", "", DARK, 1.4f, "BACKSPACE"),
+                    k("Enter", "", "", "", RED, 1.3f, "ENTER")
+            }, 40);
         }
 
-        root.addView(board, new LinearLayout.LayoutParams(-1, -2));
+        boardScroll.addView(board, new FrameLayout.LayoutParams(-1, -2));
+        root.addView(boardScroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        TextView footer = new TextView(this);
+        footer.setText("Tap a panel for more keys   •   SYSTEM KB opens Android keyboard choices");
+        footer.setTextColor(mutedText);
+        footer.setTextSize(8);
+        footer.setGravity(Gravity.CENTER);
+        root.addView(footer, new LinearLayout.LayoutParams(-1, dp(17)));
         return root;
     }
 
@@ -405,18 +420,16 @@ public class PCKeyboardService extends InputMethodService {
         TextView tab = new TextView(this);
         boolean selected = panel.equals(pcPanel);
         tab.setText(label);
-        tab.setTextSize(10);
+        tab.setTextSize(9);
         tab.setTypeface(Typeface.DEFAULT_BOLD);
         tab.setGravity(Gravity.CENTER);
-        tab.setTextColor(selected ? Color.DKGRAY : Color.WHITE);
-        tab.setBackground(shape(selected ? whiteKey : darkKey, 7,
-                Color.rgb(24, 25, 29)));
-
+        tab.setTextColor(selected ? Color.rgb(7, 28, 39) : Color.rgb(211, 224, 239));
+        tab.setBackground(shape(selected ? accent : darkKey, 8,
+                selected ? accent : Color.rgb(57, 80, 108)));
         LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(0, dp(32), 1f);
+                new LinearLayout.LayoutParams(0, dp(30), 1f);
         params.setMargins(dp(2), 0, dp(2), 0);
         parent.addView(tab, params);
-
         tab.setOnClickListener(v -> {
             pcPanel = panel;
             refresh();
@@ -430,44 +443,42 @@ public class PCKeyboardService extends InputMethodService {
     private View createMobileKeyboard() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(5), dp(5), dp(5), dp(7));
-        root.setBackgroundColor(Color.rgb(29, 30, 34));
+        root.setPadding(dp(6), dp(5), dp(6), dp(6));
+        root.setBackgroundColor(bg);
 
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView brand = new TextView(this);
+        brand.setText("PC MUSIC  /  MOBILE");
+        brand.setTextColor(Color.WHITE);
+        brand.setTextSize(12);
+        brand.setTypeface(Typeface.DEFAULT_BOLD);
+        header.addView(brand, new LinearLayout.LayoutParams(0, dp(36), 1f));
+        addChip(header, "PC", DARK, () -> switchLayout("pc"));
+        addChip(header, "SYSTEM KB", LIGHT, this::showSystemKeyboardPicker);
+        addChip(header, "×", DARK, () -> requestHideSelf(0));
+        root.addView(header, new LinearLayout.LayoutParams(-1, dp(38)));
 
-        LinearLayout toolbar = new LinearLayout(this);
-        toolbar.setOrientation(LinearLayout.HORIZONTAL);
-        toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        TextView subTitle = new TextView(this);
+        subTitle.setText("MOBILE QWERTY  •  WORD SUGGESTIONS");
+        subTitle.setTextColor(mutedText);
+        subTitle.setTextSize(9);
+        subTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        subTitle.setGravity(Gravity.CENTER_VERTICAL);
+        root.addView(subTitle, new LinearLayout.LayoutParams(-1, dp(18)));
 
-        addChip(toolbar, "× Close", DARK, () -> requestHideSelf(0));
-        // Opens Android's own keyboard chooser (Gboard or another enabled IME).
-        addChip(toolbar, "🌐 SWITCH KB", DARK, this::showSystemKeyboardPicker);
-        addChip(toolbar, "● MOBILE ACTIVE", LIGHT, null);
-        // Switches back to this app's built-in PC layout.
-        addChip(toolbar, "⇄ PC", DARK, () -> switchLayout("pc"));
-        addChip(toolbar, caps ? "● CAPS" : "CAPS", caps ? LIGHT : DARK, () -> {
-            caps = !caps;
-            refresh();
-        });
-        addChip(toolbar, symbols ? "ABC" : "?123", DARK, () -> {
+        addChip(root, symbols ? "ABC" : "?123  SYMBOLS", DARK, () -> {
             symbols = !symbols;
             refresh();
         });
 
-        scroll.addView(toolbar);
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, dp(40)));
-
-        // Suggestions appear only on the normal letter keyboard.
-        if (!symbols) {
-            addMobileSuggestionBar(root);
-        }
+        if (!symbols) addMobileSuggestionBar(root);
 
         LinearLayout board = new LinearLayout(this);
         board.setOrientation(LinearLayout.VERTICAL);
-        board.setPadding(dp(3), dp(5), dp(3), dp(3));
-        board.setBackground(shape(Color.rgb(38, 39, 44), 12,
-                Color.rgb(65, 67, 73)));
+        board.setPadding(dp(4), dp(6), dp(4), dp(4));
+        board.setBackground(shape(frame, 13, Color.rgb(42, 67, 91)));
 
         if (!symbols) {
             addMobileRow(board, new KeySpec[] {
@@ -476,65 +487,65 @@ public class PCKeyboardService extends InputMethodService {
                     mobileLetter("t", "5"), mobileLetter("y", "6"),
                     mobileLetter("u", "7"), mobileLetter("i", "8"),
                     mobileLetter("o", "9"), mobileLetter("p", "0")
-            }, 44);
-
+            }, 41);
             addMobileRow(board, new KeySpec[] {
                     mobileLetter("a", "@"), mobileLetter("s", "#"),
                     mobileLetter("d", "$"), mobileLetter("f", "%"),
                     mobileLetter("g", "&"), mobileLetter("h", "-"),
                     mobileLetter("j", "+"), mobileLetter("k", "("),
                     mobileLetter("l", ")")
-            }, 44);
-
+            }, 41);
             addMobileRow(board, new KeySpec[] {
-                    k("⇧", "", "", "", DARK, 1.5f, "SHIFT"),
+                    k("⇧", "", "", "", DARK, 1.35f, "SHIFT"),
                     mobileLetter("z", "*"), mobileLetter("x", "!"),
                     mobileLetter("c", "\""), mobileLetter("v", "'"),
                     mobileLetter("b", ":"), mobileLetter("n", ";"),
                     mobileLetter("m", "?"),
-                    k("⌫", "", "", "", DARK, 1.5f, "BACKSPACE")
-            }, 44);
-
+                    k("⌫", "", "", "", DARK, 1.35f, "BACKSPACE")
+            }, 41);
             addMobileRow(board, new KeySpec[] {
-                    k("?123", "", "", "", DARK, 1.45f, "SYMBOLS"),
-                    k(",", "", "", ",", LIGHT, 0.8f, null),
-                    k("English", "", "", "", LIGHT, 4.0f, "SPACE"),
-                    k(".", "", "", ".", LIGHT, 0.8f, null),
-                    k("↵", "", "", "", RED, 1.35f, "ENTER")
-            }, 47);
-
+                    k("?123", "", "", "", DARK, 1.15f, "SYMBOLS"),
+                    k("🌐", "", "", "", DARK, 0.9f, "SYSTEM_SWITCH"),
+                    k(",", "", "", ",", LIGHT, 0.75f, null),
+                    k("English", "", "", "", LIGHT, 3.25f, "SPACE"),
+                    k(".", "", "", ".", LIGHT, 0.75f, null),
+                    k("↵", "", "", "", RED, 1.15f, "ENTER")
+            }, 43);
         } else {
             addMobileRow(board, new KeySpec[] {
                     simpleKey("1"), simpleKey("2"), simpleKey("3"),
                     simpleKey("4"), simpleKey("5"), simpleKey("6"),
                     simpleKey("7"), simpleKey("8"), simpleKey("9"),
                     simpleKey("0")
-            }, 44);
-
+            }, 41);
             addMobileRow(board, new KeySpec[] {
                     simpleKey("@"), simpleKey("#"), simpleKey("$"),
                     simpleKey("%"), simpleKey("&"), simpleKey("-"),
                     simpleKey("+"), simpleKey("("), simpleKey(")"),
                     simpleKey("/")
-            }, 44);
-
+            }, 41);
             addMobileRow(board, new KeySpec[] {
                     simpleKey("="), simpleKey("*"), simpleKey("\""),
                     simpleKey("'"), simpleKey(":"), simpleKey(";"),
                     simpleKey("!"), simpleKey("?"),
-                    k("⌫", "", "", "", DARK, 1.5f, "BACKSPACE")
-            }, 44);
-
+                    k("⌫", "", "", "", DARK, 1.35f, "BACKSPACE")
+            }, 41);
             addMobileRow(board, new KeySpec[] {
-                    k("ABC", "", "", "", DARK, 1.4f, "SYMBOLS"),
+                    k("ABC", "", "", "", DARK, 1.1f, "SYMBOLS"),
+                    k("🌐", "", "", "", DARK, 0.9f, "SYSTEM_SWITCH"),
                     simpleKey(","),
-                    k("English", "", "", "", LIGHT, 4.0f, "SPACE"),
+                    k("English", "", "", "", LIGHT, 3.25f, "SPACE"),
                     simpleKey("."),
-                    k("↵", "", "", "", RED, 1.35f, "ENTER")
-            }, 47);
+                    k("↵", "", "", "", RED, 1.15f, "ENTER")
+            }, 43);
         }
 
-        root.addView(board, new LinearLayout.LayoutParams(-1, -2));
+        ScrollView mobileBoardScroll = new ScrollView(this);
+        mobileBoardScroll.setFillViewport(false);
+        mobileBoardScroll.setVerticalScrollBarEnabled(false);
+        mobileBoardScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        mobileBoardScroll.addView(board, new FrameLayout.LayoutParams(-1, -2));
+        root.addView(mobileBoardScroll, new LinearLayout.LayoutParams(-1, 0, 1f));
         return root;
     }
 
@@ -620,9 +631,9 @@ public class PCKeyboardService extends InputMethodService {
         for (KeySpec spec : keys) {
             FrameLayout shell = new FrameLayout(this);
 
-            int base = spec.type == LIGHT ? Color.rgb(105, 107, 113)
-                    : spec.type == RED ? Color.rgb(105, 12, 22)
-                    : Color.rgb(25, 26, 30);
+            int base = spec.type == LIGHT ? Color.rgb(35, 53, 76)
+                    : spec.type == RED ? Color.rgb(112, 39, 43)
+                    : Color.rgb(19, 30, 47);
 
             int face = spec.type == LIGHT ? whiteKey
                     : spec.type == RED ? redKey : darkKey;
@@ -630,7 +641,7 @@ public class PCKeyboardService extends InputMethodService {
             int foreground = spec.type == LIGHT
                     ? Color.rgb(35, 36, 41) : Color.WHITE;
 
-            shell.setBackground(shape(base, 7, Color.rgb(18, 19, 22)));
+            shell.setBackground(shape(base, 7, Color.rgb(7, 13, 24)));
 
             TextView key = new TextView(this);
             key.setText(currentLabel(spec));
@@ -639,7 +650,7 @@ public class PCKeyboardService extends InputMethodService {
             key.setTypeface(Typeface.DEFAULT_BOLD);
             key.setIncludeFontPadding(false);
             key.setTextSize(spec.main.length() > 4 ? 11 : 17);
-            key.setBackground(shape(face, 6, Color.rgb(150, 152, 158)));
+            key.setBackground(shape(face, 6, Color.rgb(75, 99, 128)));
 
             FrameLayout.LayoutParams faceParams =
                     new FrameLayout.LayoutParams(-1, -1);
@@ -664,23 +675,19 @@ public class PCKeyboardService extends InputMethodService {
                          int type, Runnable click) {
         TextView chip = new TextView(this);
         chip.setText(label);
-        chip.setTextSize(10);
+        chip.setTextSize(label.length() > 8 ? 9 : 10);
         chip.setTypeface(Typeface.DEFAULT_BOLD);
-        chip.setTextColor(type == LIGHT ? Color.DKGRAY : Color.WHITE);
+        chip.setTextColor(type == LIGHT ? Color.rgb(6, 30, 39) : Color.WHITE);
         chip.setGravity(Gravity.CENTER);
-        chip.setPadding(dp(9), dp(7), dp(9), dp(7));
-
-        int color = type == LIGHT ? whiteKey : darkKey;
-        chip.setBackground(shape(color, 7, Color.rgb(24, 25, 29)));
-
+        chip.setPadding(dp(8), dp(6), dp(8), dp(6));
+        int color = type == LIGHT ? accent : darkKey;
+        chip.setBackground(shape(color, 9,
+                type == LIGHT ? accent : Color.rgb(60, 82, 109)));
         LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(-2, dp(34));
+                new LinearLayout.LayoutParams(-2, dp(32));
         params.setMargins(dp(2), 0, dp(2), 0);
         parent.addView(chip, params);
-
-        if (click != null) {
-            chip.setOnClickListener(v -> click.run());
-        }
+        if (click != null) chip.setOnClickListener(v -> click.run());
     }
 
     private void addRow(LinearLayout parent, KeySpec[] keys, int height) {
@@ -696,19 +703,19 @@ public class PCKeyboardService extends InputMethodService {
         for (KeySpec spec : keys) {
             FrameLayout shell = new FrameLayout(this);
 
-            int base = spec.type == LIGHT ? Color.rgb(112, 114, 120)
-                    : spec.type == RED ? Color.rgb(105, 12, 22)
-                    : Color.rgb(27, 28, 32);
+            int base = spec.type == LIGHT ? Color.rgb(35, 53, 76)
+                    : spec.type == RED ? Color.rgb(112, 39, 43)
+                    : Color.rgb(19, 30, 47);
 
             boolean active = isModifierActive(spec.action);
-            int face = active ? Color.rgb(255, 193, 7)
+            int face = active ? accent
                     : spec.type == LIGHT ? whiteKey
                     : spec.type == RED ? redKey : darkKey;
 
             int foreground = active || spec.type == LIGHT
                     ? Color.rgb(35, 36, 41) : Color.WHITE;
 
-            shell.setBackground(shape(base, 6, Color.rgb(19, 20, 23)));
+            shell.setBackground(shape(base, 6, Color.rgb(7, 13, 24)));
 
             LinearLayout content = new LinearLayout(this);
             content.setOrientation(LinearLayout.VERTICAL);
@@ -716,12 +723,12 @@ public class PCKeyboardService extends InputMethodService {
             content.setPadding(dp(2), dp(1), dp(2), dp(1));
             content.setBackground(shape(face, 4,
                     spec.type == LIGHT
-                            ? Color.rgb(190, 192, 198)
-                            : Color.rgb(35, 36, 40)));
+                            ? Color.rgb(160, 184, 211)
+                            : Color.rgb(55, 77, 103)));
 
             FrameLayout.LayoutParams faceParams =
                     new FrameLayout.LayoutParams(-1, -1);
-            faceParams.setMargins(dp(2), dp(1), dp(2), dp(5));
+            faceParams.setMargins(dp(1), dp(1), dp(1), dp(3));
             shell.addView(content, faceParams);
 
             String label = currentLabel(spec);
@@ -744,7 +751,7 @@ public class PCKeyboardService extends InputMethodService {
             main.setGravity(Gravity.CENTER);
             main.setTypeface(Typeface.DEFAULT_BOLD);
             main.setIncludeFontPadding(false);
-            main.setTextSize(label.length() > 3 ? 8 : 15);
+            main.setTextSize(label.length() > 7 ? 7 : label.length() > 3 ? 8 : 13);
             content.addView(main, new LinearLayout.LayoutParams(
                     -1, 0, hasTop ? 1.3f : 1f));
 
@@ -866,10 +873,15 @@ public class PCKeyboardService extends InputMethodService {
     }
 
     private void handleKey(KeySpec spec) {
+        String action = spec.action;
+        // System keyboard switching does not need an editor connection.
+        if ("SYSTEM_SWITCH".equals(action)) {
+            showSystemKeyboardPicker();
+            return;
+        }
+
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
-
-        String action = spec.action;
 
         if (action == null) {
             String value = currentLabel(spec);
