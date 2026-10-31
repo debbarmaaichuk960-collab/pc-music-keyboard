@@ -11,6 +11,7 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
@@ -117,6 +118,16 @@ public class PCKeyboardService extends InputMethodService {
         }
     }
 
+    /** Shows Android's system keyboard chooser so the user can select Gboard
+     * or any other keyboard that has been enabled in Android Settings. */
+    private void showSystemKeyboardPicker() {
+        InputMethodManager manager =
+                (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (manager != null) {
+            manager.showInputMethodPicker();
+        }
+    }
+
     private void switchLayout(String layout) {
         getSharedPreferences(PREFS, MODE_PRIVATE)
                 .edit()
@@ -151,6 +162,9 @@ public class PCKeyboardService extends InputMethodService {
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
 
         addChip(toolbar, "× Close", DARK, () -> requestHideSelf(0));
+        // Opens Android's own keyboard chooser (Gboard or another enabled IME).
+        addChip(toolbar, "🌐 SWITCH KB", DARK, this::showSystemKeyboardPicker);
+        // Switches to this app's built-in mobile QWERTY layout.
         addChip(toolbar, "⇄ MOBILE", DARK, () -> switchLayout("mobile"));
         addChip(toolbar, "● PC ACTIVE", LIGHT, null);
         addChip(toolbar, caps ? "● CAPS" : "CAPS", caps ? LIGHT : DARK, () -> {
@@ -427,7 +441,10 @@ public class PCKeyboardService extends InputMethodService {
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
 
         addChip(toolbar, "× Close", DARK, () -> requestHideSelf(0));
+        // Opens Android's own keyboard chooser (Gboard or another enabled IME).
+        addChip(toolbar, "🌐 SWITCH KB", DARK, this::showSystemKeyboardPicker);
         addChip(toolbar, "● MOBILE ACTIVE", LIGHT, null);
+        // Switches back to this app's built-in PC layout.
         addChip(toolbar, "⇄ PC", DARK, () -> switchLayout("pc"));
         addChip(toolbar, caps ? "● CAPS" : "CAPS", caps ? LIGHT : DARK, () -> {
             caps = !caps;
