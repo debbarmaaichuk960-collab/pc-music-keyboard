@@ -29,6 +29,7 @@ public class PCKeyboardService extends InputMethodService {
     private boolean symbols = false;
     private boolean num = false;
     private boolean scr = false;
+    private String pcPanel = "main";
     private String composingWord = "";
 
 private static final String[] WORDS = {
@@ -127,6 +128,21 @@ private static final String[] WORDS = {
         addChip(toolbar, "× Close", DARK, () -> requestHideSelf(0));
         addChip(toolbar, "⇄ MOBILE", DARK, () -> switchLayout("mobile"));
         addChip(toolbar, "● PC ACTIVE", LIGHT, null);
+        addChip(toolbar, "MAIN",
+        pcPanel.equals("main") ? LIGHT : DARK,
+        () -> { pcPanel = "main"; refresh(); });
+
+addChip(toolbar, "F-KEYS",
+        pcPanel.equals("function") ? LIGHT : DARK,
+        () -> { pcPanel = "function"; refresh(); });
+
+addChip(toolbar, "NAV",
+        pcPanel.equals("navigation") ? LIGHT : DARK,
+        () -> { pcPanel = "navigation"; refresh(); });
+
+addChip(toolbar, "NUMPAD",
+        pcPanel.equals("numpad") ? LIGHT : DARK,
+        () -> { pcPanel = "numpad"; refresh(); });
         addChip(toolbar, caps ? "● CAPS" : "CAPS",
                 caps ? LIGHT : DARK, () -> {
                     caps = !caps;
@@ -150,12 +166,13 @@ private static final String[] WORDS = {
         scroll.addView(toolbar);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, dp(40)));
 
-        addMobileSuggestionBar(root);
 
         LinearLayout board = new LinearLayout(this);
         board.setOrientation(LinearLayout.VERTICAL);
         board.setPadding(dp(3), dp(4), dp(3), dp(3));
         board.setBackground(shape(frame, 10, Color.rgb(78, 80, 86)));
+
+        if ("main".equals(pcPanel)) {
 
         // Row 1
         addRow(board, new KeySpec[] {
@@ -236,6 +253,90 @@ private static final String[] WORDS = {
             k("Alt","","","",DARK,1.15f,"ALT")
         }, 49);
 
+
+} else if ("function".equals(pcPanel)) {
+
+    // System keys
+    addRow(board, new KeySpec[] {
+        k("Print", "", "", "SYSRQ", DARK, 1.5f, "PC_SEND"),
+        k("Scroll", "", "", "SCROLL_LOCK", DARK, 1.5f, "PC_SEND"),
+        k("Pause", "", "", "BREAK", DARK, 1.5f, "PC_SEND")
+    }, 46);
+
+    // F1 to F6
+    addRow(board, new KeySpec[] {
+        k("F1","","","F1",LIGHT,1,"PC_SEND"),
+        k("F2","","","F2",LIGHT,1,"PC_SEND"),
+        k("F3","","","F3",LIGHT,1,"PC_SEND"),
+        k("F4","","","F4",LIGHT,1,"PC_SEND"),
+        k("F5","","","F5",LIGHT,1,"PC_SEND"),
+        k("F6","","","F6",LIGHT,1,"PC_SEND")
+    }, 48);
+
+    // F7 to F12
+    addRow(board, new KeySpec[] {
+        k("F7","","","F7",LIGHT,1,"PC_SEND"),
+        k("F8","","","F8",LIGHT,1,"PC_SEND"),
+        k("F9","","","F9",LIGHT,1,"PC_SEND"),
+        k("F10","","","F10",LIGHT,1,"PC_SEND"),
+        k("F11","","","F11",LIGHT,1,"PC_SEND"),
+        k("F12","","","F12",LIGHT,1,"PC_SEND")
+    }, 48);
+
+} else if ("navigation".equals(pcPanel)) {
+
+    addRow(board, new KeySpec[] {
+        k("Ins","","","INSERT",DARK,1,"PC_SEND"),
+        k("Home","","","MOVE_HOME",LIGHT,1,"PC_SEND"),
+        k("PgUp","","","PAGE_UP",LIGHT,1,"PC_SEND")
+    }, 46);
+
+    addRow(board, new KeySpec[] {
+        k("Del","","","FORWARD_DEL",RED,1,"PC_SEND"),
+        k("End","","","MOVE_END",LIGHT,1,"PC_SEND"),
+        k("PgDn","","","PAGE_DOWN",LIGHT,1,"PC_SEND")
+    }, 46);
+
+    addRow(board, new KeySpec[] {
+        k("←","","","DPAD_LEFT",LIGHT,1,"PC_SEND"),
+        k("↓","","","DPAD_DOWN",LIGHT,1,"PC_SEND"),
+        k("↑","","","DPAD_UP",LIGHT,1,"PC_SEND"),
+        k("→","","","DPAD_RIGHT",LIGHT,1,"PC_SEND")
+    }, 48);
+
+} else if ("numpad".equals(pcPanel)) {
+
+    addRow(board, new KeySpec[] {
+        k("Num Lock","","","NUM_LOCK",DARK,1.5f,"NUM_LOCK"),
+        k("/","","","NUMPAD_DIVIDE",LIGHT,1,"PC_SEND"),
+        k("*","","","NUMPAD_MULTIPLY",LIGHT,1,"PC_SEND"),
+        k("-","","","NUMPAD_SUBTRACT",LIGHT,1,"PC_SEND")
+    }, 46);
+
+    addRow(board, new KeySpec[] {
+        k("7","","","NUMPAD_7",LIGHT,1,"PC_SEND"),
+        k("8","","","NUMPAD_8",LIGHT,1,"PC_SEND"),
+        k("9","","","NUMPAD_9",LIGHT,1,"PC_SEND"),
+        k("+","","","NUMPAD_ADD",RED,1,"PC_SEND")
+    }, 46);
+
+    addRow(board, new KeySpec[] {
+        k("4","","","NUMPAD_4",LIGHT,1,"PC_SEND"),
+        k("5","","","NUMPAD_5",LIGHT,1,"PC_SEND"),
+        k("6","","","NUMPAD_6",LIGHT,1,"PC_SEND"),
+        k("Enter","","","NUMPAD_ENTER",RED,1,"PC_SEND")
+    }, 46);
+
+    addRow(board, new KeySpec[] {
+        k("1","","","NUMPAD_1",LIGHT,1,"PC_SEND"),
+        k("2","","","NUMPAD_2",LIGHT,1,"PC_SEND"),
+        k("3","","","NUMPAD_3",LIGHT,1,"PC_SEND"),
+        k("0","","","NUMPAD_0",LIGHT,1.5f,"PC_SEND"),
+        k(".","","","NUMPAD_DOT",LIGHT,1,"PC_SEND")
+    }, 46);
+}
+
+
         root.addView(board, new LinearLayout.LayoutParams(-1, -2));
         return root;
     }
@@ -273,6 +374,8 @@ private static final String[] WORDS = {
 
         scroll.addView(toolbar);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, dp(40)));
+
+        addMobileSuggestionBar(root);
 
         LinearLayout board = new LinearLayout(this);
         board.setOrientation(LinearLayout.VERTICAL);
@@ -681,6 +784,16 @@ if (action == null) {
                 refresh();
                 break;
 
+                case "PC_SEND":
+    sendPcKey(ic, spec.symbol);
+    break;
+
+case "NUM_LOCK":
+    num = !num;
+    sendPcKey(ic, "NUM_LOCK");
+    refresh();
+    break;
+
             case "ESC":
                 ic.sendKeyEvent(new KeyEvent(
                         KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ESCAPE));
@@ -692,6 +805,25 @@ if (action == null) {
                 break;
         }
     }
+
+    private void sendPcKey(InputConnection ic, String keyName) {
+    if (ic == null || keyName == null || keyName.isEmpty()) {
+        return;
+    }
+
+    int keyCode = KeyEvent.keyCodeFromString(
+            "KEYCODE_" + keyName);
+
+    if (keyCode == KeyEvent.KEYCODE_UNKNOWN) {
+        return;
+    }
+
+    ic.sendKeyEvent(new KeyEvent(
+            KeyEvent.ACTION_DOWN, keyCode));
+
+    ic.sendKeyEvent(new KeyEvent(
+            KeyEvent.ACTION_UP, keyCode));
+}
 
     private void refresh() {
         setInputView(onCreateInputView());
