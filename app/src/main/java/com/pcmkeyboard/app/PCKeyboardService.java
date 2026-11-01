@@ -2,17 +2,27 @@ package com.pcmkeyboard.app;
 
 import android.Manifest;
 import android.content.Intent;
+import android.media.AudioManager;
+import android.text.InputType;
+import android.view.WindowInsets;
+import android.widget.PopupWindow;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.inputmethodservice.InputMethodService;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.VibrationAttributes;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.os.VibratorManager;
 import android.os.SystemClock;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
@@ -48,27 +58,81 @@ public class PCKeyboardService extends InputMethodService {
     private boolean hapticOn = true;
     private long lastStamp = 0;
     private String voiceLang = "en-IN";
+    private int gradEnd = 0;
+    private int pcStyle = 0;      // 0 classic 3D, 1 flat rounded, 2 outline, 3 minimal
+    private int mobileStyle = 3;
+    private String bgName = "";
+    private boolean hapticForce = true;
+    private boolean soundOn = false;
+    // voice typing bookkeeping
+    private boolean voiceComposing = false;   // true while WE have unfinished partial text in the field
+    private int voiceSession = 0;             // invalidates callbacks of old recognizers
+    private long lastWordsReset = 0;
+    private PopupWindow previewPopup;
 
-    // bg, frame, lightKey, darkKey, redKey, accent, muted, darkKeyText
-    private static final int[][] THEMES = {
+    // bg, frame, lightKey, darkKey, redKey, accent, muted, darkKeyText, gradientEnd (0 = solid)
+    static final String[] THEME_NAMES = {
+            "Midnight", "Default", "Default dark", "Purple", "Green", "Blue", "Cyan", "Red",
+            "Pink", "Orange", "Peach", "Sky", "Mint", "Dusk", "Ocean", "Ember"};
+    static final int[][] THEMES = {
             {Color.rgb(8, 15, 28), Color.rgb(18, 30, 48), Color.rgb(225, 235, 246),
                     Color.rgb(39, 57, 80), Color.rgb(255, 103, 82), Color.rgb(48, 215, 194),
-                    Color.rgb(154, 174, 197), Color.WHITE},
+                    Color.rgb(154, 174, 197), Color.WHITE, 0},
             {Color.rgb(232, 237, 244), Color.rgb(205, 214, 226), Color.WHITE,
                     Color.rgb(170, 184, 203), Color.rgb(255, 103, 82), Color.rgb(0, 150, 136),
-                    Color.rgb(90, 105, 125), Color.rgb(20, 30, 45)},
+                    Color.rgb(90, 105, 125), Color.rgb(20, 30, 45), 0},
             {Color.BLACK, Color.rgb(12, 12, 14), Color.rgb(215, 215, 220),
                     Color.rgb(40, 40, 46), Color.rgb(230, 70, 70), Color.rgb(0, 200, 120),
-                    Color.rgb(130, 130, 140), Color.WHITE},
+                    Color.rgb(130, 130, 140), Color.WHITE, 0},
             {Color.rgb(20, 10, 36), Color.rgb(38, 22, 66), Color.rgb(235, 226, 250),
                     Color.rgb(70, 48, 112), Color.rgb(255, 95, 140), Color.rgb(180, 130, 255),
-                    Color.rgb(176, 160, 208), Color.WHITE}
+                    Color.rgb(176, 160, 208), Color.WHITE, 0},
+            // colours
+            {Color.rgb(0, 96, 80), Color.rgb(0, 120, 100), Color.rgb(224, 247, 242),
+                    Color.rgb(0, 150, 125), Color.rgb(255, 112, 67), Color.rgb(255, 214, 64),
+                    Color.rgb(178, 223, 214), Color.WHITE, 0},
+            {Color.rgb(21, 101, 192), Color.rgb(30, 120, 220), Color.rgb(227, 238, 252),
+                    Color.rgb(25, 80, 160), Color.rgb(255, 112, 67), Color.rgb(255, 235, 59),
+                    Color.rgb(187, 214, 245), Color.WHITE, 0},
+            {Color.rgb(128, 222, 234), Color.rgb(77, 208, 225), Color.WHITE,
+                    Color.rgb(0, 151, 167), Color.rgb(255, 112, 67), Color.rgb(0, 96, 100),
+                    Color.rgb(0, 96, 110), Color.WHITE, 0},
+            {Color.rgb(183, 28, 28), Color.rgb(211, 47, 47), Color.rgb(255, 235, 238),
+                    Color.rgb(140, 20, 20), Color.rgb(255, 160, 0), Color.rgb(255, 214, 64),
+                    Color.rgb(255, 205, 210), Color.WHITE, 0},
+            {Color.rgb(194, 24, 91), Color.rgb(216, 67, 121), Color.rgb(252, 228, 236),
+                    Color.rgb(150, 20, 70), Color.rgb(255, 171, 64), Color.rgb(255, 235, 59),
+                    Color.rgb(248, 187, 208), Color.WHITE, 0},
+            {Color.rgb(230, 81, 0), Color.rgb(245, 124, 0), Color.rgb(255, 243, 224),
+                    Color.rgb(180, 60, 0), Color.rgb(0, 121, 107), Color.rgb(255, 241, 118),
+                    Color.rgb(255, 224, 178), Color.WHITE, 0},
+            // light gradients
+            {Color.rgb(255, 236, 210), Color.rgb(255, 226, 208), Color.WHITE,
+                    Color.rgb(240, 185, 165), Color.rgb(255, 103, 82), Color.rgb(214, 69, 65),
+                    Color.rgb(130, 80, 70), Color.rgb(60, 30, 30), Color.rgb(252, 182, 159)},
+            {Color.rgb(224, 247, 250), Color.rgb(200, 232, 248), Color.WHITE,
+                    Color.rgb(129, 190, 230), Color.rgb(255, 112, 67), Color.rgb(2, 119, 189),
+                    Color.rgb(40, 90, 130), Color.rgb(10, 40, 70), Color.rgb(129, 212, 250)},
+            {Color.rgb(232, 245, 233), Color.rgb(205, 232, 208), Color.WHITE,
+                    Color.rgb(150, 205, 155), Color.rgb(255, 112, 67), Color.rgb(46, 125, 50),
+                    Color.rgb(50, 100, 55), Color.rgb(20, 50, 25), Color.rgb(165, 214, 167)},
+            // dark gradients
+            {Color.rgb(44, 62, 80), Color.rgb(40, 36, 72), Color.rgb(235, 230, 250),
+                    Color.rgb(75, 62, 120), Color.rgb(255, 95, 140), Color.rgb(255, 200, 100),
+                    Color.rgb(190, 180, 220), Color.WHITE, Color.rgb(142, 68, 173)},
+            {Color.rgb(15, 32, 39), Color.rgb(20, 45, 58), Color.rgb(225, 240, 245),
+                    Color.rgb(40, 75, 95), Color.rgb(255, 112, 67), Color.rgb(100, 230, 220),
+                    Color.rgb(150, 190, 205), Color.WHITE, Color.rgb(44, 83, 100)},
+            {Color.rgb(30, 10, 10), Color.rgb(50, 18, 16), Color.rgb(255, 235, 225),
+                    Color.rgb(100, 40, 30), Color.rgb(255, 138, 0), Color.rgb(255, 200, 80),
+                    Color.rgb(210, 160, 140), Color.WHITE, Color.rgb(120, 30, 20)}
     };
 
     // ---------- state ----------
     private boolean shift, caps, symbols, num, scr, ctrl, alt, altGr, win;
     private boolean mobileLayout = false;
     private boolean emojiOpen = false;
+    private boolean menuOpen = false;
     private boolean needRefresh = false;
     private int symPage = 0;
     private int emojiCat = 0;
@@ -163,6 +227,10 @@ public class PCKeyboardService extends InputMethodService {
         return k(label, "", "", code, type, w, "PC_SEND");
     }
 
+    private KeySpec txt(String label, String text, int type, float w) {
+        return k(label, "", "", text, type, w, "TEXT");
+    }
+
     private KeySpec combo(String label, String caption, String combo) {
         return k(label, caption, "", combo, LIGHT, 1f, "COMBO");
     }
@@ -211,19 +279,256 @@ public class PCKeyboardService extends InputMethodService {
 
     private int labelSp(String s) {
         int n = s.length();
-        return n <= 1 ? 15 : n == 2 ? 13 : n == 3 ? 10 : n <= 5 ? 10 : n <= 8 ? 9 : 8;
+        return n <= 1 ? 18 : n == 2 ? 14 : n == 3 ? 10 : n <= 5 ? 10 : n <= 8 ? 9 : 8;
     }
 
-    /** Light tap vibration on every key. */
+    /**
+     * Key feedback. Uses the system's own keyboard haptic (KEYBOARD_TAP), so it follows the
+     * phone's "touch feedback" setting and strength.
+     *  - Android 12 and below: FLAG_IGNORE_GLOBAL_SETTING can still be used ("haptic_force").
+     *  - Android 13, 14, 15, 16: that flag has no effect any more, so the system setting always
+     *    decides. We do NOT try to bypass it.
+     * Only if the system refuses to perform the haptic at all (returns false) a short "tick" is
+     * played through the Vibrator, and only when the app already holds the VIBRATE permission.
+     */
+    @SuppressWarnings("deprecation")
     private void haptic(View v) {
-    if (!hapticOn || v == null) return;
-    v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-}
+        if (hapticOn) {
+            boolean done = false;
+            if (v != null && v.isAttachedToWindow()) {
+                int flags = 0;
+                if (hapticForce && Build.VERSION.SDK_INT < 33) {
+                    flags = HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING;
+                }
+                try {
+                    done = v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP, flags);
+                } catch (RuntimeException ignored) {
+                }
+            }
+            if (!done) vibrateFallback();
+        }
+        if (soundOn) {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            if (am != null) am.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD, -1);
+        }
+    }
+
+    private boolean systemHapticEnabled() {
+        try {
+            return android.provider.Settings.System.getInt(getContentResolver(),
+                    android.provider.Settings.System.HAPTIC_FEEDBACK_ENABLED, 1) != 0;
+        } catch (RuntimeException e) {
+            return true;
+        }
+    }
+
+    /** Last-resort tick. Needs android.permission.VIBRATE in the manifest, otherwise it does nothing. */
+    private void vibrateFallback() {
+        if (Build.VERSION.SDK_INT < 26) return;
+        try {
+            if (checkSelfPermission(Manifest.permission.VIBRATE)
+                    != PackageManager.PERMISSION_GRANTED) return;
+            Vibrator vib;
+            if (Build.VERSION.SDK_INT >= 31) {
+                VibratorManager vm = (VibratorManager) getSystemService(VIBRATOR_MANAGER_SERVICE);
+                vib = vm == null ? null : vm.getDefaultVibrator();
+            } else {
+                vib = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+            }
+            if (vib == null || !vib.hasVibrator()) return;
+            VibrationEffect effect = Build.VERSION.SDK_INT >= 29
+                    ? VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+                    : VibrationEffect.createOneShot(10, 60);
+            if (Build.VERSION.SDK_INT >= 33) {
+                // touch usage: the system applies the user's touch-feedback setting itself
+                vib.vibrate(effect, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_TOUCH));
+            } else {
+                if (!hapticForce && !systemHapticEnabled()) return;
+                vib.vibrate(effect);
+            }
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    private void showPreview(View key, String text) {
+        hidePreview();
+        try {
+            TextView tv = new TextView(this);
+            tv.setText(text);
+            tv.setTextSize(30);
+            tv.setGravity(Gravity.CENTER);
+            tv.setTextColor(Color.rgb(35, 36, 41));
+            tv.setBackground(shape(whiteKey, 12, Color.rgb(160, 184, 211)));
+            int w = Math.max(key.getWidth() + dp(14), dp(48));
+            int h = dp(58);
+            PopupWindow pw = new PopupWindow(tv, w, h);
+            pw.setClippingEnabled(false);
+            pw.setTouchable(false);
+            pw.setFocusable(false);
+            int[] loc = new int[2];
+            key.getLocationOnScreen(loc);
+            pw.showAtLocation(key, Gravity.TOP | Gravity.START,
+                    loc[0] + key.getWidth() / 2 - w / 2, loc[1] - h - dp(2));
+            previewPopup = pw;
+        } catch (RuntimeException ignored) {
+            previewPopup = null;
+        }
+    }
+
+    private void hidePreview() {
+        if (previewPopup != null) {
+            try {
+                previewPopup.dismiss();
+            } catch (RuntimeException ignored) {
+            }
+            previewPopup = null;
+        }
+    }
+
+    private Bitmap decodeScaled(String path) {
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(path, o);
+        int target = Math.max(720, getResources().getDisplayMetrics().widthPixels);
+        int sample = 1;
+        while (o.outWidth / (sample * 2) >= target) sample *= 2;
+        o.inJustDecodeBounds = false;
+        o.inSampleSize = sample;
+        return BitmapFactory.decodeFile(path, o);
+    }
+
+    // ---------- field safety ----------
+    private boolean isPasswordField() {
+        EditorInfo ei = getCurrentInputEditorInfo();
+        if (ei == null) return false;
+        int cls = ei.inputType & InputType.TYPE_MASK_CLASS;
+        int var = ei.inputType & InputType.TYPE_MASK_VARIATION;
+        if (cls == InputType.TYPE_CLASS_TEXT) {
+            return var == InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    || var == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                    || var == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD;
+        }
+        return cls == InputType.TYPE_CLASS_NUMBER
+                && var == InputType.TYPE_NUMBER_VARIATION_PASSWORD;
+    }
+
+    /** No suggestions / learning in password, number, phone and "no suggestions" fields. */
+    private boolean noSuggestField() {
+        EditorInfo ei = getCurrentInputEditorInfo();
+        if (ei == null) return true;
+        if (isPasswordField()) return true;
+        int cls = ei.inputType & InputType.TYPE_MASK_CLASS;
+        if (cls != InputType.TYPE_CLASS_TEXT && cls != 0) return true;
+        if ((ei.inputType & InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) != 0) return true;
+        return (ei.imeOptions & EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0;
+    }
+
+    // ---------- system keys (volume, media, apps) ----------
+    private boolean launchCategory(String category) {
+        try {
+            Intent i = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, category);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception e) {
+            Toast.makeText(this, "Is phone me app nahi mili", Toast.LENGTH_SHORT).show();
+        }
+        return true;
+    }
+
+    private boolean mediaKey(AudioManager am, int code) {
+        if (am == null) return true;
+        long t = SystemClock.uptimeMillis();
+        am.dispatchMediaKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0));
+        am.dispatchMediaKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_UP, code, 0));
+        return true;
+    }
+
+    private boolean handleSystemKey(String name) {
+        if (name == null) return false;
+        AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+        switch (name) {
+            case "VOLUME_UP":
+                if (am != null) am.adjustStreamVolume(AudioManager.STREAM_MUSIC,
+                        AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI);
+                return true;
+            case "VOLUME_DOWN":
+                if (am != null) am.adjustStreamVolume(AudioManager.STREAM_MUSIC,
+                        AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI);
+                return true;
+            case "VOLUME_MUTE":
+                if (am != null) am.adjustStreamVolume(AudioManager.STREAM_MUSIC,
+                        AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI);
+                return true;
+            case "MEDIA_PLAY_PAUSE": return mediaKey(am, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE);
+            case "MEDIA_NEXT": return mediaKey(am, KeyEvent.KEYCODE_MEDIA_NEXT);
+            case "MEDIA_PREVIOUS": return mediaKey(am, KeyEvent.KEYCODE_MEDIA_PREVIOUS);
+            case "MEDIA_STOP": return mediaKey(am, KeyEvent.KEYCODE_MEDIA_STOP);
+            case "CALCULATOR": return launchCategory(Intent.CATEGORY_APP_CALCULATOR);
+            case "ENVELOPE": return launchCategory(Intent.CATEGORY_APP_EMAIL);
+            case "EXPLORER": return launchCategory(Intent.CATEGORY_APP_BROWSER);
+            case "SEARCH":
+                try {
+                    Intent i = new Intent(Intent.ACTION_WEB_SEARCH);
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(i);
+                } catch (Exception e) {
+                    Toast.makeText(this, "Search app nahi mili", Toast.LENGTH_SHORT).show();
+                }
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private String describe(String label) {
+        switch (label) {
+            case "⌫": return "Backspace";
+            case "⇧": case "⬆": case "⇪": return "Shift";
+            case "↵": case "➜": case "➤": case "✓": return "Enter";
+            case "🔍": return "Search";
+            case "😊": return "Emoji";
+            case "↑": return "Up arrow";
+            case "↓": return "Down arrow";
+            case "←": return "Left arrow";
+            case "→": return "Right arrow";
+            default: return label;
+        }
+    }
+
+    private int sysColor(String name, int fallback) {
+        try {
+            int id = getResources().getIdentifier(name, "color", "android");
+            if (id != 0) return getColor(id);
+        } catch (Throwable ignored) {
+        }
+        return fallback;
+    }
+
+    private int[] dynamicTheme() {
+        if (Build.VERSION.SDK_INT >= 31) {
+            int[] f = THEMES[1];
+            return new int[]{
+                    sysColor("system_accent2_100", f[0]), sysColor("system_accent2_200", f[1]),
+                    sysColor("system_accent2_10", f[2]), sysColor("system_accent1_200", f[3]),
+                    sysColor("system_accent3_300", f[4]), sysColor("system_accent1_600", f[5]),
+                    sysColor("system_accent2_600", f[6]), sysColor("system_accent1_900", f[7]), 0};
+        }
+        return THEMES[1];
+    }
 
     private void loadTheme(SharedPreferences p) {
         int t = p.getInt("theme", 0);
-        if (t < 0 || t >= THEMES.length) t = 0;
-        int[] c = THEMES[t];
+        int[] c;
+        if (t == 100) {   // system auto
+            boolean night = (getResources().getConfiguration().uiMode
+                    & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+            c = THEMES[night ? 2 : 1];
+        } else if (t == 101) {   // dynamic colour
+            c = dynamicTheme();
+        } else {
+            if (t < 0 || t >= THEMES.length) t = 0;
+            c = THEMES[t];
+        }
         bg = c[0];
         frame = c[1];
         whiteKey = c[2];
@@ -232,18 +537,25 @@ public class PCKeyboardService extends InputMethodService {
         accent = c[5];
         mutedText = c[6];
         darkText = c[7];
+        gradEnd = c[8];
         hapticOn = p.getBoolean("haptic", true);
+        hapticForce = p.getBoolean("haptic_force", true);
+        soundOn = p.getBoolean("sound", false);
         dimAlpha = p.getInt("bg_dim", 110);
         lastStamp = p.getLong("theme_stamp", 0);
         voiceLang = p.getString("voice_lang", "en-IN");
+        pcStyle = p.getInt("pc_style", 0);
+        mobileStyle = p.getInt("mobile_style", 3);
 
-        File f = new File(getFilesDir(), "kb_bg.jpg");
+        String name = p.getString("bg_file", "kb_bg.jpg");
+        File f = new File(getFilesDir(), name);
         if (p.getBoolean("bg_image", false) && f.exists()) {
             long stamp = f.lastModified();
-            if (bgBitmap == null || stamp != bgStamp) {
+            if (bgBitmap == null || stamp != bgStamp || !name.equals(bgName)) {
                 try {
-                    bgBitmap = BitmapFactory.decodeFile(f.getAbsolutePath());
+                    bgBitmap = decodeScaled(f.getAbsolutePath());
                     bgStamp = stamp;
+                    bgName = name;
                 } catch (Throwable e) {
                     bgBitmap = null;
                 }
@@ -253,10 +565,48 @@ public class PCKeyboardService extends InputMethodService {
         }
     }
 
-    /** Wraps the keyboard in a fixed-height frame with optional photo background. */
+    /** Frame that forces an exact height (the IME window ignores LayoutParams height). */
+    private static class FixedHeightFrame extends FrameLayout {
+        private final int heightPx;
+        private int bottomInset = 0;
+
+        FixedHeightFrame(android.content.Context c, int heightPx) {
+            super(c);
+            this.heightPx = heightPx;
+        }
+
+        @Override
+        public WindowInsets onApplyWindowInsets(WindowInsets insets) {
+            // Android 15+ draws the keyboard behind the navigation bar
+            if (Build.VERSION.SDK_INT >= 35) {
+                int b = insets.getInsets(WindowInsets.Type.navigationBars()).bottom;
+                if (b != bottomInset) {
+                    bottomInset = b;
+                    setPadding(0, 0, 0, b);
+                    requestLayout();
+                }
+            }
+            return super.onApplyWindowInsets(insets);
+        }
+
+        @Override
+        protected void onMeasure(int widthSpec, int heightSpec) {
+            super.onMeasure(widthSpec,
+                    MeasureSpec.makeMeasureSpec(heightPx + bottomInset, MeasureSpec.EXACTLY));
+        }
+    }
+
+    /** Wraps the keyboard in a fixed-height frame with optional photo background.
+     *  The photo lives only inside this frame, nowhere else. */
     private View wrap(View content, int heightDp) {
-        FrameLayout fl = new FrameLayout(this);
-        fl.setBackgroundColor(bg);
+        int maxH = (int) (getResources().getDisplayMetrics().heightPixels * 0.62f);
+        FrameLayout fl = new FixedHeightFrame(this, Math.min(dp(heightDp), maxH));
+        if (gradEnd != 0 && bgBitmap == null) {
+            fl.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{bg, gradEnd}));
+        } else {
+            fl.setBackgroundColor(bg);
+        }
         if (bgBitmap != null) {
             ImageView iv = new ImageView(this);
             iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -267,8 +617,7 @@ public class PCKeyboardService extends InputMethodService {
             fl.addView(dim, new FrameLayout.LayoutParams(-1, -1));
         }
         fl.addView(content, new FrameLayout.LayoutParams(-1, -1));
-        int maxH = (int) (getResources().getDisplayMetrics().heightPixels * 0.62f);
-        fl.setLayoutParams(new ViewGroup.LayoutParams(-1, Math.min(dp(heightDp), maxH)));
+        fl.setClipChildren(true);
         return fl;
     }
 
@@ -309,8 +658,9 @@ public class PCKeyboardService extends InputMethodService {
             alt = false;
             altGr = false;
             win = false;
-            if (emojiOpen) {
+            if (emojiOpen || menuOpen) {
                 emojiOpen = false;
+                menuOpen = false;
                 needRefresh = true;
             }
         }
@@ -320,6 +670,11 @@ public class PCKeyboardService extends InputMethodService {
     public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
         long stamp = prefs().getLong("theme_stamp", 0);
+        long wr = prefs().getLong("words_reset", 0);
+        if (wr != lastWordsReset) {
+            lastWordsReset = wr;
+            userWords.clear();
+        }
         boolean rebuild = needRefresh || stamp != lastStamp;
         needRefresh = false;
         if (mobileLayout && autoCaps()) rebuild = true;
@@ -327,40 +682,71 @@ public class PCKeyboardService extends InputMethodService {
     }
 
     @Override
+    public boolean onEvaluateFullscreenMode() {
+        return false;   // never take over the whole screen in landscape
+    }
+
+    @Override
+    public void onUpdateSelection(int oldSelStart, int oldSelEnd, int newSelStart,
+                                  int newSelEnd, int candidatesStart, int candidatesEnd) {
+        super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd,
+                candidatesStart, candidatesEnd);
+        // a selection appeared while dictating -> stop voice typing right away
+        if (listening && newSelStart != newSelEnd) abortVoiceForSelection();
+        if (composingWord.isEmpty()) return;
+        // cursor moved / text selected -> forget the half-typed word
+        if (newSelStart != newSelEnd || Math.abs(newSelStart - oldSelStart) > 3) {
+            composingWord = "";
+            if (mobileLayout) updateSuggestions();
+        }
+    }
+
+    @Override
+    public void onFinishInput() {
+        // runs while the old field is still connected, so a half-dictated phrase is cleared there
+        stopVoiceNow();
+        super.onFinishInput();
+    }
+
+    @Override
     public void onFinishInputView(boolean finishingInput) {
+        hidePreview();
         stopVoiceNow();
         super.onFinishInputView(finishingInput);
     }
 
     private void refresh() {
         handler.removeCallbacksAndMessages(null);
+        hidePreview();
         setInputView(onCreateInputView());
     }
 
     private void showSystemKeyboardPicker() {
-    if (android.os.Build.VERSION.SDK_INT >= 28) {
         try {
-            if (shouldOfferSwitchingToNextInputMethod()
-                    && switchToNextInputMethod(false)) {
-                return;
-            }
+            if (switchToNextInputMethod(false)) return;
         } catch (RuntimeException ignored) {
+        }
+        InputMethodManager manager =
+                (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (manager != null) manager.showInputMethodPicker();
+    }
+
+    /** Starts an activity from the keyboard; never crashes the keyboard if it cannot open. */
+    private boolean startActivitySafely(Intent i) {
+        try {
+            startActivity(i);
+            return true;
+        } catch (RuntimeException e) {
+            Toast.makeText(this, "Screen khul nahi saki", Toast.LENGTH_SHORT).show();
+            return false;
         }
     }
 
-    InputMethodManager manager =
-            (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-
-    if (manager != null) {
-        manager.showInputMethodPicker();
-    }
-}
-
     private void openThemeScreen() {
-        requestHideSelf(0);
         Intent i = new Intent(this, ThemeActivity.class);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        startActivity(i);
+        // start first, hide after: the keyboard window is what lets Android 14+ allow the launch
+        if (startActivitySafely(i)) requestHideSelf(0);
     }
 
     private void switchLayout(String layout) {
@@ -368,6 +754,7 @@ public class PCKeyboardService extends InputMethodService {
         shift = false;
         symbols = false;
         emojiOpen = false;
+        menuOpen = false;
         ctrl = false;
         alt = false;
         altGr = false;
@@ -383,32 +770,17 @@ public class PCKeyboardService extends InputMethodService {
     private View createPcKeyboard() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(6), dp(4), dp(6), dp(4));
+        root.setPadding(dp(3), dp(4), dp(3), dp(3));
 
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView brand = new TextView(this);
-        brand.setText("PC MUSIC");
-        brand.setTextColor(darkTextOnBg());
-        brand.setTextSize(13);
-        brand.setTypeface(Typeface.DEFAULT_BOLD);
-        brand.setLetterSpacing(0.06f);
-        brand.setPadding(dp(3), 0, 0, 0);
-        header.addView(brand, new LinearLayout.LayoutParams(0, dp(34), 1f));
-
-        addChip(header, "🌐", LIGHT, this::showSystemKeyboardPicker);
-        micView = addChip(header, "🎤", DARK, this::toggleVoice);
-        addChip(header, "🎨", DARK, this::openThemeScreen);
-        addChip(header, "📱", DARK, () -> switchLayout("mobile"));
-        addChip(header, "×", DARK, () -> requestHideSelf(0));
-        root.addView(header, new LinearLayout.LayoutParams(-1, dp(36)));
+        if (menuOpen) {
+            buildMenuPanel(root);
+            return wrap(root, 340);
+        }
 
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         tabs.setGravity(Gravity.CENTER);
-        tabs.setPadding(0, dp(2), 0, dp(3));
+        tabs.setPadding(0, dp(2), 0, dp(4));
         addPanelTab(tabs, "MAIN", "main");
         addPanelTab(tabs, "F1-12", "function");
         addPanelTab(tabs, "NAV", "navigation");
@@ -416,7 +788,23 @@ public class PCKeyboardService extends InputMethodService {
         addPanelTab(tabs, "MEDIA", "media");
         addPanelTab(tabs, "CTRL+", "shortcuts");
         addPanelTab(tabs, "MORE", "extra");
-        root.addView(tabs, new LinearLayout.LayoutParams(-1, dp(34)));
+
+        // menu button (4 squares) after MORE
+        TextView gridBtn = new TextView(this);
+        gridBtn.setText("▦");
+        gridBtn.setTextSize(17);
+        gridBtn.setGravity(Gravity.CENTER);
+        gridBtn.setTextColor(darkText);
+        gridBtn.setBackground(shape(a(darkKey), 8, Color.rgb(57, 80, 108)));
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(dp(38), dp(32));
+        gp.setMargins(dp(3), 0, dp(1.5f), 0);
+        tabs.addView(gridBtn, gp);
+        gridBtn.setOnClickListener(v -> {
+            haptic(v);
+            menuOpen = true;
+            refresh();
+        });
+        root.addView(tabs, new LinearLayout.LayoutParams(-1, dp(36)));
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(false);
@@ -426,169 +814,168 @@ public class PCKeyboardService extends InputMethodService {
         LinearLayout board = new LinearLayout(this);
         board.setOrientation(LinearLayout.VERTICAL);
         board.setPadding(dp(3), dp(4), dp(3), dp(3));
-        board.setBackground(shape(a(frame), 12, Color.rgb(42, 67, 91)));
+        if (pcStyle <= 1) board.setBackground(shape(a(frame), 12, Color.rgb(42, 67, 91)));
         buildPcPanel(board);
 
         scroll.addView(board, new FrameLayout.LayoutParams(-1, -2));
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
         refreshMicUi();
-        return wrap(root, 330);
+        return wrap(root, 340);
     }
 
     private int darkTextOnBg() {
-        return bgBitmap != null ? Color.WHITE : (bg == THEMES[1][0] ? Color.rgb(20, 30, 45) : Color.WHITE);
+        if (bgBitmap != null) return Color.WHITE;
+        double lum = (0.299 * Color.red(bg) + 0.587 * Color.green(bg)
+                + 0.114 * Color.blue(bg)) / 255.0;
+        return lum > 0.6 ? Color.rgb(20, 30, 45) : Color.WHITE;
     }
 
     private void buildPcPanel(LinearLayout board) {
         if ("main".equals(pcPanel)) {
             // every row sums to 15.5 so all keys are the same size
             addRow(board, new KeySpec[]{
-                    k("Esc", "", "", "", RED, 1.25f, "ESC"),
+                    k("Esc", "", "", "", RED, 1f, "ESC"),
                     pcKey("`", "~"), pcKey("1", "!"), pcKey("2", "@"), pcKey("3", "#"),
                     pcKey("4", "$"), pcKey("5", "%"), pcKey("6", "^"), pcKey("7", "&"),
                     pcKey("8", "*"), pcKey("9", "("), pcKey("0", ")"), pcKey("-", "_"),
                     pcKey("=", "+"),
-                    k("⌫", "", "", "", DARK, 1.25f, "BACKSPACE")
-            }, 40);
+                    k("⌫", "", "", "", DARK, 1f, "BACKSPACE")
+            }, 48);
             addRow(board, new KeySpec[]{
-                    k("Tab", "", "", "", DARK, 1.75f, "TAB"),
+                    k("Tab", "", "", "", DARK, 1.5f, "TAB"),
                     pcLetter("q"), pcLetter("w"), pcLetter("e"), pcLetter("r"), pcLetter("t"),
                     pcLetter("y"), pcLetter("u"), pcLetter("i"), pcLetter("o"), pcLetter("p"),
                     pcKey("[", "{"), pcKey("]", "}"),
-                    k("\\", "|", "|", "", LIGHT, 1.75f, null)
-            }, 40);
+                    k("\\", "|", "|", "", LIGHT, 1.5f, null)
+            }, 48);
             addRow(board, new KeySpec[]{
-                    k("Caps", "", "", "", DARK, 1.9f, "CAPS"),
+                    k("Caps", "", "", "", DARK, 1.75f, "CAPS"),
                     pcLetter("a"), pcLetter("s"), pcLetter("d"), pcLetter("f"), pcLetter("g"),
                     pcLetter("h"), pcLetter("j"), pcLetter("k"), pcLetter("l"),
                     pcKey(";", ":"), pcKey("'", "\""),
-                    k("Enter", "", "", "", RED, 2.6f, "ENTER")
-            }, 40);
+                    k("Enter", "", "", "", RED, 2.25f, "ENTER")
+            }, 48);
             addRow(board, new KeySpec[]{
-                    k("Shift", "", "", "", DARK, 2.75f, "SHIFT"),
+                    k("Shift", "", "", "", DARK, 2.5f, "SHIFT"),
                     pcLetter("z"), pcLetter("x"), pcLetter("c"), pcLetter("v"), pcLetter("b"),
                     pcLetter("n"), pcLetter("m"),
                     pcKey(",", "<"), pcKey(".", ">"), pcKey("/", "?"),
                     send("↑", "DPAD_UP", DARK, 1f),
-                    send("Del", "FORWARD_DEL", DARK, 1.75f)
-            }, 40);
+                    send("Del", "FORWARD_DEL", DARK, 1.5f)
+            }, 48);
             addRow(board, new KeySpec[]{
                     k("Ctrl", "", "", "", DARK, 1.5f, "CTRL"),
                     k("Win", "", "", "", DARK, 1.25f, "WIN"),
                     k("Alt", "", "", "", DARK, 1.25f, "ALT"),
-                    k("Space", "", "", "", LIGHT, 8.5f, "SPACE"),
+                    k("Space", "", "", "", LIGHT, 8f, "SPACE"),
                     send("←", "DPAD_LEFT", DARK, 1f),
                     send("↓", "DPAD_DOWN", DARK, 1f),
                     send("→", "DPAD_RIGHT", DARK, 1f)
-            }, 40);
+            }, 48);
 
         } else if ("function".equals(pcPanel)) {
             addRow(board, new KeySpec[]{
                     send("F1", "F1", LIGHT, 1), send("F2", "F2", LIGHT, 1),
                     send("F3", "F3", LIGHT, 1), send("F4", "F4", LIGHT, 1),
                     send("F5", "F5", LIGHT, 1), send("F6", "F6", LIGHT, 1)
-            }, 42);
+            }, 46);
             addRow(board, new KeySpec[]{
                     send("F7", "F7", LIGHT, 1), send("F8", "F8", LIGHT, 1),
                     send("F9", "F9", LIGHT, 1), send("F10", "F10", LIGHT, 1),
                     send("F11", "F11", LIGHT, 1), send("F12", "F12", LIGHT, 1)
-            }, 42);
+            }, 46);
             addRow(board, new KeySpec[]{
                     k("Esc", "", "", "", RED, 1, "ESC"),
-                    send("PrtSc", "SYSRQ", DARK, 1),
-                    k("ScrLk", "", "", "SCROLL_LOCK", DARK, 1, "SCROLL_LOCK"),
-                    send("Pause", "BREAK", DARK, 1)
-            }, 42);
+                    k("PrtSc", "remote", "", "SYSRQ", DARK, 1, "PC_SEND"),
+                    k("ScrLk", "remote", "", "SCROLL_LOCK", DARK, 1, "SCROLL_LOCK"),
+                    k("Pause", "remote", "", "BREAK", DARK, 1, "PC_SEND")
+            }, 46);
 
         } else if ("navigation".equals(pcPanel)) {
             addRow(board, new KeySpec[]{
                     send("Insert", "INSERT", DARK, 1), send("Home", "MOVE_HOME", LIGHT, 1),
                     send("PgUp", "PAGE_UP", LIGHT, 1)
-            }, 42);
+            }, 46);
             addRow(board, new KeySpec[]{
                     send("Delete", "FORWARD_DEL", RED, 1), send("End", "MOVE_END", LIGHT, 1),
                     send("PgDn", "PAGE_DOWN", LIGHT, 1)
-            }, 42);
-            addRow(board, new KeySpec[]{gap(1), send("↑", "DPAD_UP", LIGHT, 1), gap(1)}, 42);
+            }, 46);
+            addRow(board, new KeySpec[]{gap(1), send("↑", "DPAD_UP", LIGHT, 1), gap(1)}, 46);
             addRow(board, new KeySpec[]{
                     send("←", "DPAD_LEFT", LIGHT, 1), send("↓", "DPAD_DOWN", LIGHT, 1),
                     send("→", "DPAD_RIGHT", LIGHT, 1)
-            }, 42);
+            }, 46);
 
         } else if ("numpad".equals(pcPanel)) {
+            // numpad keys type real characters (Android turns NUMPAD_7 into "Home" when NumLock is off)
             addRow(board, new KeySpec[]{
-                    k("NumLk", "", "", "NUM_LOCK", DARK, 1, "NUM_LOCK"),
-                    send("/", "NUMPAD_DIVIDE", LIGHT, 1), send("*", "NUMPAD_MULTIPLY", LIGHT, 1),
-                    send("−", "NUMPAD_SUBTRACT", LIGHT, 1)
-            }, 40);
+                    txt("%", "%", DARK, 1), txt("/", "/", LIGHT, 1), txt("*", "*", LIGHT, 1),
+                    txt("−", "-", LIGHT, 1)
+            }, 46);
             addRow(board, new KeySpec[]{
-                    send("7", "NUMPAD_7", LIGHT, 1), send("8", "NUMPAD_8", LIGHT, 1),
-                    send("9", "NUMPAD_9", LIGHT, 1), send("+", "NUMPAD_ADD", RED, 1)
-            }, 40);
+                    txt("7", "7", LIGHT, 1), txt("8", "8", LIGHT, 1), txt("9", "9", LIGHT, 1),
+                    txt("+", "+", RED, 1)
+            }, 46);
             addRow(board, new KeySpec[]{
-                    send("4", "NUMPAD_4", LIGHT, 1), send("5", "NUMPAD_5", LIGHT, 1),
-                    send("6", "NUMPAD_6", LIGHT, 1), send("⌫", "DEL", DARK, 1)
-            }, 40);
+                    txt("4", "4", LIGHT, 1), txt("5", "5", LIGHT, 1), txt("6", "6", LIGHT, 1),
+                    k("⌫", "", "", "", DARK, 1, "BACKSPACE")
+            }, 46);
             addRow(board, new KeySpec[]{
-                    send("1", "NUMPAD_1", LIGHT, 1), send("2", "NUMPAD_2", LIGHT, 1),
-                    send("3", "NUMPAD_3", LIGHT, 1), send("Enter", "NUMPAD_ENTER", RED, 1)
-            }, 40);
+                    txt("1", "1", LIGHT, 1), txt("2", "2", LIGHT, 1), txt("3", "3", LIGHT, 1),
+                    k("Enter", "", "", "", RED, 1, "ENTER")
+            }, 46);
             addRow(board, new KeySpec[]{
-                    send("0", "NUMPAD_0", LIGHT, 2), send(".", "NUMPAD_DOT", LIGHT, 1),
-                    send("=", "NUMPAD_EQUALS", LIGHT, 1)
-            }, 40);
+                    txt("0", "0", LIGHT, 2), txt(".", ".", LIGHT, 1), txt("=", "=", LIGHT, 1)
+            }, 46);
 
         } else if ("media".equals(pcPanel)) {
             addRow(board, new KeySpec[]{
                     send("Vol −", "VOLUME_DOWN", DARK, 1), send("Mute", "VOLUME_MUTE", DARK, 1),
                     send("Vol +", "VOLUME_UP", DARK, 1)
-            }, 42);
+            }, 46);
             addRow(board, new KeySpec[]{
                     send("Prev", "MEDIA_PREVIOUS", LIGHT, 1),
                     send("Play/Pause", "MEDIA_PLAY_PAUSE", RED, 1.5f),
                     send("Stop", "MEDIA_STOP", LIGHT, 1), send("Next", "MEDIA_NEXT", LIGHT, 1)
-            }, 42);
+            }, 46);
             addRow(board, new KeySpec[]{
                     send("Calc", "CALCULATOR", LIGHT, 1), send("Search", "SEARCH", LIGHT, 1),
                     send("Mail", "ENVELOPE", LIGHT, 1), send("Browser", "EXPLORER", LIGHT, 1)
-            }, 42);
+            }, 46);
 
         } else if ("shortcuts".equals(pcPanel)) {
             addRow(board, new KeySpec[]{
                     combo("Copy", "Ctrl+C", "CTRL+C"), combo("Paste", "Ctrl+V", "CTRL+V"),
                     combo("Cut", "Ctrl+X", "CTRL+X"), combo("Sel All", "Ctrl+A", "CTRL+A")
-            }, 44);
+            }, 48);
             addRow(board, new KeySpec[]{
                     combo("Undo", "Ctrl+Z", "CTRL+Z"), combo("Redo", "Ctrl+Y", "CTRL+Y"),
                     combo("Save", "Ctrl+S", "CTRL+S"), combo("Find", "Ctrl+F", "CTRL+F")
-            }, 44);
+            }, 48);
             addRow(board, new KeySpec[]{
                     combo("Print", "Ctrl+P", "CTRL+P"), combo("New", "Ctrl+N", "CTRL+N"),
                     combo("Open", "Ctrl+O", "CTRL+O"), combo("Bold", "Ctrl+B", "CTRL+B")
-            }, 44);
+            }, 48);
             addRow(board, new KeySpec[]{
                     combo("New Tab", "Ctrl+T", "CTRL+T"), combo("Close", "Ctrl+W", "CTRL+W"),
                     combo("Reload", "Ctrl+R", "CTRL+R"), combo("Switch", "Alt+Tab", "ALT+TAB")
-            }, 44);
+            }, 48);
             addRow(board, new KeySpec[]{
                     combo("Desktop", "Win+D", "WIN+D"), combo("Files", "Win+E", "WIN+E"),
                     combo("Quit", "Alt+F4", "ALT+F4"), combo("Reopen", "Ctrl+Sh+T", "CTRL+SHIFT+T")
-            }, 44);
+            }, 48);
 
         } else if ("extra".equals(pcPanel)) {
             addRow(board, new KeySpec[]{
                     k("AltGr", "", "", "", DARK, 1, "ALTGR"),
-                    send("Menu", "MENU", DARK, 1), send("Help", "HELP", LIGHT, 1)
-            }, 42);
-            addRow(board, new KeySpec[]{
-                    send("Sleep", "SLEEP", DARK, 1), send("Wake", "WAKEUP", DARK, 1),
+                    k("Menu", "remote", "", "MENU", DARK, 1, "PC_SEND"),
                     k("Esc", "", "", "", RED, 1, "ESC")
-            }, 42);
+            }, 46);
             addRow(board, new KeySpec[]{
                     k("Tab", "", "", "", DARK, 1, "TAB"),
                     k("⌫", "", "", "", DARK, 1, "BACKSPACE"),
                     k("Enter", "", "", "", RED, 1, "ENTER")
-            }, 42);
+            }, 46);
         }
     }
 
@@ -631,18 +1018,44 @@ public class PCKeyboardService extends InputMethodService {
             int face = active ? accent
                     : spec.type == LIGHT ? whiteKey
                     : spec.type == RED ? redKey : darkKey;
-            int fg = fgFor(spec, active);
-
-            shell.setBackground(shape(a(darken(face)), 6, Color.rgb(7, 13, 24)));
+            int fg;
+            boolean boxed = pcStyle <= 1;
 
             LinearLayout content = new LinearLayout(this);
             content.setOrientation(LinearLayout.VERTICAL);
             content.setGravity(Gravity.CENTER);
             content.setPadding(dp(1), dp(1), dp(1), dp(1));
-            content.setBackground(shape(a(face), 4,
-                    spec.type == LIGHT ? Color.rgb(160, 184, 211) : Color.rgb(55, 77, 103)));
             FrameLayout.LayoutParams faceParams = new FrameLayout.LayoutParams(-1, -1);
-            faceParams.setMargins(dp(1), dp(1), dp(1), dp(3));
+
+            switch (pcStyle) {
+                case 1: // flat rounded
+                    fg = fgFor(spec, active);
+                    content.setBackground(shape(a(face), 9, a(face)));
+                    faceParams.setMargins(dp(1.5f), dp(1.5f), dp(1.5f), dp(1.5f));
+                    break;
+                case 2: // outline
+                    fg = active ? accent : spec.type == RED ? redKey : darkTextOnBg();
+                    content.setBackground(shape(Color.TRANSPARENT, 9,
+                            active ? accent : spec.type == RED ? redKey : mutedText));
+                    faceParams.setMargins(dp(1.5f), dp(1.5f), dp(1.5f), dp(1.5f));
+                    break;
+                case 3: // minimal (no boxes)
+                    if (active) {
+                        fg = Color.rgb(7, 28, 39);
+                        content.setBackground(shape(accent, 9, accent));
+                    } else {
+                        fg = spec.type == RED ? redKey : darkTextOnBg();
+                    }
+                    faceParams.setMargins(dp(1.5f), dp(1.5f), dp(1.5f), dp(1.5f));
+                    break;
+                default: // classic 3D
+                    fg = fgFor(spec, active);
+                    shell.setBackground(shape(a(darken(face)), 6, Color.rgb(7, 13, 24)));
+                    content.setBackground(shape(a(face), 4,
+                            spec.type == LIGHT ? Color.rgb(160, 184, 211) : Color.rgb(55, 77, 103)));
+                    faceParams.setMargins(dp(1), dp(1), dp(1), dp(3));
+                    break;
+            }
             shell.addView(content, faceParams);
 
             String label = currentLabel(spec);
@@ -652,7 +1065,8 @@ public class PCKeyboardService extends InputMethodService {
                 top.setText(spec.top);
                 top.setTextSize(7.5f);
                 top.setSingleLine(true);
-                top.setTextColor(active ? fg : (spec.type == LIGHT ? Color.rgb(90, 100, 118) : fg));
+                top.setTextColor(boxed && !active && spec.type == LIGHT
+                        ? Color.rgb(90, 100, 118) : (boxed ? fg : mutedText));
                 top.setGravity(Gravity.CENTER);
                 content.addView(top, new LinearLayout.LayoutParams(-1, 0, 0.5f));
             }
@@ -661,7 +1075,7 @@ public class PCKeyboardService extends InputMethodService {
             main.setText(label.isEmpty() ? " " : label);
             main.setTextColor(fg);
             main.setGravity(Gravity.CENTER);
-            main.setTypeface(Typeface.DEFAULT_BOLD);
+            main.setTypeface(pcStyle == 3 ? Typeface.DEFAULT : Typeface.DEFAULT_BOLD);
             main.setIncludeFontPadding(false);
             main.setSingleLine(true);
             main.setTextSize(labelSp(label));
@@ -670,8 +1084,10 @@ public class PCKeyboardService extends InputMethodService {
             LinearLayout.LayoutParams keyParams = new LinearLayout.LayoutParams(0, -1, spec.weight);
             keyParams.setMargins(dp(1), 0, dp(1), 0);
             row.addView(shell, keyParams);
-            shell.setElevation(dp(2));
+            if (pcStyle == 0) shell.setElevation(dp(2));
             shell.setOnTouchListener(new KeyTouch(spec, false));
+            shell.setContentDescription(describe(label));
+            shell.setOnClickListener(v -> handleKey(spec));   // TalkBack double-tap
         }
     }
 
@@ -682,35 +1098,22 @@ public class PCKeyboardService extends InputMethodService {
     private View createMobileKeyboard() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(4), dp(3), dp(4), dp(5));
+        root.setPadding(dp(2), dp(2), dp(2), dp(4));
 
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView brand = new TextView(this);
-        brand.setText("PC MUSIC");
-        brand.setTextColor(darkTextOnBg());
-        brand.setTextSize(12);
-        brand.setTypeface(Typeface.DEFAULT_BOLD);
-        brand.setPadding(dp(4), 0, 0, 0);
-        header.addView(brand, new LinearLayout.LayoutParams(0, dp(32), 1f));
-        addChip(header, "PC", DARK, () -> switchLayout("pc"));
-        addChip(header, "🎨", DARK, this::openThemeScreen);
-        addChip(header, "🌐", LIGHT, this::showSystemKeyboardPicker);
-        addChip(header, "×", DARK, () -> requestHideSelf(0));
-        root.addView(header, new LinearLayout.LayoutParams(-1, dp(34)));
-
+        if (menuOpen) {
+            buildMenuPanel(root);
+            return wrap(root, 300);
+        }
         if (emojiOpen) {
             buildEmojiPanel(root);
-            return wrap(root, 320);
+            return wrap(root, 300);
         }
 
         addMobileSuggestionBar(root);
 
         LinearLayout board = new LinearLayout(this);
         board.setOrientation(LinearLayout.VERTICAL);
-        board.setPadding(dp(3), dp(6), dp(3), dp(1));
-        board.setBackground(shape(a(frame), 12, Color.rgb(42, 67, 91)));
+        board.setPadding(0, dp(2), 0, 0);
 
         String enter = enterLabel();
         if (!symbols) {
@@ -728,7 +1131,7 @@ public class PCKeyboardService extends InputMethodService {
                     gap(0.5f)
             }, 0);
             addMobileRow(board, new KeySpec[]{
-                    k(caps ? "⇪" : "⇧", "", "", "", DARK, 1.4f, "SHIFT"),
+                    k(caps ? "⇪" : (shift ? "⬆" : "⇧"), "", "", "", DARK, 1.4f, "SHIFT"),
                     mobileLetter("z", "*"), mobileLetter("x", "\""), mobileLetter("c", "'"),
                     mobileLetter("v", ":"), mobileLetter("b", ";"), mobileLetter("n", "!"),
                     mobileLetter("m", "?"),
@@ -784,7 +1187,7 @@ public class PCKeyboardService extends InputMethodService {
 
         root.addView(board, new LinearLayout.LayoutParams(-1, 0, 1f));
         refreshMicUi();
-        return wrap(root, 320);
+        return wrap(root, 300);
     }
 
     private String enterLabel() {
@@ -808,6 +1211,16 @@ public class PCKeyboardService extends InputMethodService {
         return act == EditorInfo.IME_ACTION_UNSPECIFIED ? EditorInfo.IME_ACTION_NONE : act;
     }
 
+    private int pillFill() {
+        return bgBitmap != null ? Color.argb(95, 255, 255, 255) : darkKey;
+    }
+
+    private int pillFg() {
+        return bgBitmap != null ? Color.WHITE : darkText;
+    }
+
+    /** Mobile keys. Style 3 = Gboard-like minimal (default); 0 classic 3D; 1 flat rounded;
+     *  2 outline. */
     private void addMobileRow(LinearLayout parent, KeySpec[] keys, int heightDp) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -815,7 +1228,7 @@ public class PCKeyboardService extends InputMethodService {
         LinearLayout.LayoutParams rp = heightDp > 0
                 ? new LinearLayout.LayoutParams(-1, dp(heightDp))
                 : new LinearLayout.LayoutParams(-1, 0, 1f);
-        rp.bottomMargin = dp(5);
+        rp.bottomMargin = dp(2);
         parent.addView(row, rp);
 
         for (KeySpec spec : keys) {
@@ -824,48 +1237,81 @@ public class PCKeyboardService extends InputMethodService {
                 continue;
             }
             boolean active = isModifierActive(spec.action);
+            String label = currentLabel(spec);
+            boolean enter = "ENTER".equals(spec.action);
+            boolean pill = "SYMBOLS".equals(spec.action) || "ABC".equals(spec.action)
+                    || "SPACE".equals(spec.action);
+            boolean letter = spec.action == null && spec.main.length() == 1
+                    && Character.isLetter(spec.main.charAt(0));
             int face = active ? accent
                     : spec.type == LIGHT ? whiteKey
                     : spec.type == RED ? redKey : darkKey;
-            int fg = fgFor(spec, active);
 
             FrameLayout shell = new FrameLayout(this);
-            shell.setBackground(shape(a(darken(face)), 8, Color.rgb(7, 13, 24)));
-
-            String label = currentLabel(spec);
             TextView key = new TextView(this);
             key.setText(label);
-            key.setTextColor(fg);
             key.setGravity(Gravity.CENTER);
-            key.setTypeface(Typeface.DEFAULT_BOLD);
             key.setIncludeFontPadding(false);
             key.setSingleLine(true);
-            key.setTextSize(label.length() <= 1 ? 20 : label.length() <= 3 ? 15 : 12);
-            key.setBackground(shape(a(face), 7, Color.rgb(75, 99, 128)));
             FrameLayout.LayoutParams faceParams = new FrameLayout.LayoutParams(-1, -1);
-            faceParams.setMargins(dp(1), dp(1), dp(1), dp(3));
+            int blue = Color.rgb(77, 142, 247);
+
+            if (enter) {
+                key.setTextColor(Color.WHITE);
+                key.setTextSize(22);
+                key.setTypeface(Typeface.DEFAULT_BOLD);
+                key.setBackground(shape(blue, mobileStyle == 3 ? 30 : 10, blue));
+                faceParams.setMargins(dp(3), dp(4), dp(3), dp(4));
+            } else if (mobileStyle == 3) {
+                if (pill) {
+                    key.setTextColor(pillFg());
+                    key.setTextSize(label.length() > 4 ? 14 : 15);
+                    key.setBackground(shape(pillFill(), 30, pillFill()));
+                    faceParams.setMargins(dp(3), dp(4), dp(3), dp(4));
+                } else {
+                    key.setTextColor(active ? accent : darkTextOnBg());
+                    key.setTextSize(letter ? 25 : label.length() <= 2 ? 23 : 15);
+                }
+            } else {
+                int fg;
+                if (mobileStyle == 0) {
+                    fg = fgFor(spec, active);
+                    shell.setBackground(shape(a(darken(face)), 8, Color.rgb(7, 13, 24)));
+                    key.setBackground(shape(a(face), 7, Color.rgb(75, 99, 128)));
+                    key.setTypeface(Typeface.DEFAULT_BOLD);
+                    faceParams.setMargins(dp(1), dp(1), dp(1), dp(4));
+                } else if (mobileStyle == 1) {
+                    fg = fgFor(spec, active);
+                    key.setBackground(shape(a(face), 11, a(face)));
+                    faceParams.setMargins(dp(2), dp(3), dp(2), dp(3));
+                } else {
+                    fg = active ? accent : darkTextOnBg();
+                    key.setBackground(shape(Color.TRANSPARENT, 11, active ? accent : mutedText));
+                    faceParams.setMargins(dp(2), dp(3), dp(2), dp(3));
+                }
+                key.setTextColor(fg);
+                key.setTextSize(letter ? 22 : label.length() <= 2 ? 20 : label.length() > 4 ? 13 : 15);
+            }
             shell.addView(key, faceParams);
 
-            boolean letter = spec.action == null && !symbols && spec.type == LIGHT
-                    && spec.main.length() == 1 && Character.isLetter(spec.main.charAt(0))
-                    && !spec.symbol.isEmpty();
-            if (letter) {
+            boolean hintKey = spec.action == null && !symbols && letter && !spec.symbol.isEmpty();
+            if (hintKey) {
                 TextView hint = new TextView(this);
                 hint.setText(spec.symbol);
-                hint.setTextSize(8.5f);
-                hint.setTextColor(Color.rgb(90, 100, 118));
+                hint.setTextSize(9);
+                hint.setTextColor(bgBitmap != null ? Color.argb(210, 255, 255, 255) : mutedText);
                 hint.setIncludeFontPadding(false);
                 FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(-2, -2,
                         Gravity.TOP | Gravity.END);
-                hp.setMargins(0, dp(3), dp(5), 0);
+                hp.setMargins(0, dp(mobileStyle == 3 ? 2 : 5), dp(mobileStyle == 3 ? 4 : 8), 0);
                 shell.addView(hint, hp);
             }
 
             LinearLayout.LayoutParams keyParams = new LinearLayout.LayoutParams(0, -1, spec.weight);
-            keyParams.setMargins(dp(2), 0, dp(2), 0);
             row.addView(shell, keyParams);
-            shell.setElevation(dp(1));
-            shell.setOnTouchListener(new KeyTouch(spec, letter));
+            shell.setOnTouchListener(new KeyTouch(spec, hintKey));
+            shell.setContentDescription(describe(label));
+            shell.setOnClickListener(v -> handleKey(spec));   // TalkBack double-tap
         }
     }
 
@@ -874,16 +1320,16 @@ public class PCKeyboardService extends InputMethodService {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(4), dp(2), dp(4), dp(2));
-        bar.setBackground(shape(a(frame), 10, Color.rgb(55, 70, 90)));
+        bar.setPadding(dp(6), 0, dp(6), 0);
 
-        TextView emoji = iconButton("😊");
-        emoji.setOnClickListener(v -> {
+        TextView menu = iconButton("▦");
+        menu.setTextColor(darkTextOnBg());
+        menu.setOnClickListener(v -> {
             haptic(v);
-            emojiOpen = true;
+            menuOpen = true;
             refresh();
         });
-        bar.addView(emoji, new LinearLayout.LayoutParams(dp(40), -1));
+        bar.addView(menu, new LinearLayout.LayoutParams(dp(44), -1));
 
         sugMiddle = new LinearLayout(this);
         sugMiddle.setOrientation(LinearLayout.HORIZONTAL);
@@ -902,11 +1348,10 @@ public class PCKeyboardService extends InputMethodService {
                     Toast.LENGTH_SHORT).show();
             return true;
         });
-        bar.addView(micView, new LinearLayout.LayoutParams(dp(40), -1));
+        LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(dp(40), dp(40));
+        bar.addView(micView, mp);
 
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(38));
-        params.bottomMargin = dp(4);
-        parent.addView(bar, params);
+        parent.addView(bar, new LinearLayout.LayoutParams(-1, dp(48)));
         updateSuggestions();
     }
 
@@ -925,7 +1370,7 @@ public class PCKeyboardService extends InputMethodService {
         if (listening) {
             micView.setBackground(shape(redKey, 10, redKey));
         } else if (mobileLayout) {
-            micView.setBackground(null);
+            micView.setBackground(shape(pillFill(), 20, pillFill()));
         } else {
             micView.setBackground(shape(darkKey, 9, Color.rgb(60, 82, 109)));
         }
@@ -934,12 +1379,7 @@ public class PCKeyboardService extends InputMethodService {
     private List<String> getSuggestions() {
         List<String> out = new ArrayList<>();
         String prefix = composingWord.toLowerCase(Locale.ROOT);
-        if (prefix.isEmpty()) {
-            out.add("I");
-            out.add("The");
-            out.add("Ok");
-            return out;
-        }
+        if (prefix.isEmpty() || noSuggestField()) return out;
         boolean cap = Character.isUpperCase(composingWord.charAt(0));
         for (String w : userWords) {
             if (out.size() >= 3) break;
@@ -965,10 +1405,27 @@ public class PCKeyboardService extends InputMethodService {
             TextView t = new TextView(this);
             t.setText("🎙 Bolo… (" + ("hi-IN".equals(voiceLang) ? "Hindi" : "English") + ")");
             t.setTextColor(accent);
-            t.setTextSize(13);
+            t.setTextSize(14);
             t.setTypeface(Typeface.DEFAULT_BOLD);
             t.setGravity(Gravity.CENTER);
             sugMiddle.addView(t, new LinearLayout.LayoutParams(-1, -1));
+            return;
+        }
+        if (composingWord.isEmpty()) {
+            // idle toolbar: sticker/emoji + language, like Gboard
+            TextView sticker = iconButton("😊");
+            sticker.setOnClickListener(v -> {
+                haptic(v);
+                emojiOpen = true;
+                refresh();
+            });
+            sugMiddle.addView(sticker, new LinearLayout.LayoutParams(0, -1, 1f));
+            TextView lang = iconButton("🌐");
+            lang.setOnClickListener(v -> {
+                haptic(v);
+                showSystemKeyboardPicker();
+            });
+            sugMiddle.addView(lang, new LinearLayout.LayoutParams(0, -1, 1f));
             return;
         }
         List<String> list = getSuggestions();
@@ -977,9 +1434,8 @@ public class PCKeyboardService extends InputMethodService {
             TextView item = new TextView(this);
             item.setText(word);
             item.setTextColor(darkTextOnBg());
-            item.setTextSize(14);
+            item.setTextSize(16);
             item.setSingleLine(true);
-            item.setTypeface(Typeface.DEFAULT_BOLD);
             item.setGravity(Gravity.CENTER);
             sugMiddle.addView(item, new LinearLayout.LayoutParams(0, -1, 1f));
             item.setOnClickListener(v -> {
@@ -989,8 +1445,7 @@ public class PCKeyboardService extends InputMethodService {
             if (i < list.size() - 1) {
                 View div = new View(this);
                 div.setBackgroundColor(Color.argb(70, 150, 160, 175));
-                LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(dp(1), dp(20));
-                sugMiddle.addView(div, dp);
+                sugMiddle.addView(div, new LinearLayout.LayoutParams(dp(1), dp(20)));
             }
         }
     }
@@ -998,7 +1453,16 @@ public class PCKeyboardService extends InputMethodService {
     private void applyWordSuggestion(String word) {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
-        if (!composingWord.isEmpty()) ic.deleteSurroundingText(composingWord.length(), 0);
+        if (!composingWord.isEmpty()) {
+            CharSequence before = ic.getTextBeforeCursor(composingWord.length(), 0);
+            if (before == null || !before.toString().equals(composingWord)) {
+                // cursor is no longer after the word we think we typed
+                composingWord = "";
+                updateSuggestions();
+                return;
+            }
+            ic.deleteSurroundingText(composingWord.length(), 0);
+        }
         ic.commitText(word + " ", 1);
         learnWord(word);
         composingWord = "";
@@ -1006,17 +1470,157 @@ public class PCKeyboardService extends InputMethodService {
     }
 
     private void learnWord(String w) {
-    if (w == null) return;
-    String word = w.toLowerCase(Locale.ROOT);
-    if (word.length() < 3 || !word.matches("[a-z']+")) return;
-    userWords.remove(word);
-    userWords.add(0, word);
-    while (userWords.size() > 400) {
-        userWords.remove(userWords.size() - 1);
+        if (w == null || noSuggestField()) return;
+        String word = w.toLowerCase(Locale.ROOT);
+        if (word.length() < 3 || !word.matches("[a-z']+")) return;
+        userWords.remove(word);
+        userWords.add(0, word);
+        while (userWords.size() > 400) userWords.remove(userWords.size() - 1);
+        prefs().edit().putString("user_words", android.text.TextUtils.join(",", userWords)).apply();
     }
-    prefs().edit().putString("user_words",
-            android.text.TextUtils.join(",", userWords)).apply();
-}
+
+    // ---------- grid menu (Settings / Share / Languages / Switch to Mobile) ----------
+    private void buildMenuPanel(LinearLayout root) {
+        String[][] items = {
+                {"↩", "Undo", "UNDO"},
+                {"⚙", "Settings  ›", "SETTINGS"},
+                {"🔗", "Share text", "SHARE"},
+                {"🌐", "Languages", "LANG"},
+                {"📱", mobileLayout ? "Switch to PC" : "Switch to Mobile", "MOBILE"},
+                {"🎤", "Voice typing", "VOICE"},
+                {"⌨", "Hide keyboard", "HIDE"}
+        };
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(6), dp(6), dp(6), dp(4));
+
+        for (int i = 0; i < items.length; i += 2) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            for (int j = 0; j < 2; j++) {
+                if (i + j < items.length) {
+                    row.addView(menuPill(items[i + j][0], items[i + j][1], items[i + j][2], false),
+                            pillParams(1f));
+                } else {
+                    row.addView(new View(this), pillParams(1f));
+                }
+            }
+            list.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
+        LinearLayout back = new LinearLayout(this);
+        back.addView(menuPill("⌨", "Back to keyboard", "BACK", true), pillParams(1f));
+        list.addView(back, new LinearLayout.LayoutParams(-1, -2));
+
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        sv.addView(list, new FrameLayout.LayoutParams(-1, -2));
+        root.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
+    }
+
+    private LinearLayout.LayoutParams pillParams(float w) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(54), w);
+        lp.setMargins(dp(4), dp(4), dp(4), dp(4));
+        return lp;
+    }
+
+    private View menuPill(String icon, String text, String id, boolean highlight) {
+        LinearLayout pill = new LinearLayout(this);
+        pill.setOrientation(LinearLayout.HORIZONTAL);
+        pill.setGravity(Gravity.CENTER_VERTICAL);
+        pill.setPadding(dp(16), 0, dp(12), 0);
+        int fill = highlight ? accent : (bgBitmap != null ? Color.argb(110, 200, 200, 200)
+                : darkKey);
+        pill.setBackground(shape(fill, 27, highlight ? accent : Color.rgb(60, 82, 109)));
+        int fg = highlight ? Color.rgb(7, 28, 39) : darkText;
+
+        TextView ic = new TextView(this);
+        ic.setText(icon);
+        ic.setTextSize(22);
+        ic.setTextColor(fg);
+        ic.setGravity(Gravity.CENTER);
+        pill.addView(ic, new LinearLayout.LayoutParams(dp(34), -2));
+
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextSize(14);
+        tv.setSingleLine(true);
+        tv.setTypeface(Typeface.DEFAULT_BOLD);
+        tv.setTextColor(fg);
+        tv.setPadding(dp(8), 0, 0, 0);
+        pill.addView(tv, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        pill.setOnClickListener(v -> {
+            haptic(v);
+            runMenuAction(id);
+        });
+        return pill;
+    }
+
+    private void runMenuAction(String id) {
+        menuOpen = false;
+        switch (id) {
+            case "UNDO":
+                sendCombo(getCurrentInputConnection(), "CTRL+Z");
+                refresh();
+                break;
+            case "SETTINGS":
+                refresh();
+                openThemeScreen();
+                break;
+            case "SHARE":
+                refresh();
+                shareText();
+                break;
+            case "LANG":
+                refresh();
+                showSystemKeyboardPicker();
+                break;
+            case "MOBILE":
+                switchLayout(mobileLayout ? "pc" : "mobile");
+                break;
+            case "VOICE":
+                refresh();
+                toggleVoice();
+                break;
+            case "HIDE":
+                refresh();
+                requestHideSelf(0);
+                break;
+            default:
+                refresh();
+                break;
+        }
+    }
+
+    /** Shares selected text, or the whole text of the current field. */
+    private void shareText() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        if (isPasswordField()) {
+            Toast.makeText(this, "Password field ka text share nahi hota", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String text;
+        CharSequence sel = ic.getSelectedText(0);
+        if (sel != null && sel.length() > 0) {
+            text = sel.toString();
+        } else {
+            CharSequence before = ic.getTextBeforeCursor(5000, 0);
+            CharSequence after = ic.getTextAfterCursor(5000, 0);
+            text = (before == null ? "" : before.toString()) + (after == null ? "" : after.toString());
+        }
+        if (text.trim().isEmpty()) {
+            Toast.makeText(this, "Share karne ke liye pehle kuch likho ya select karo",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_TEXT, text);
+        Intent chooser = Intent.createChooser(send, "Share via");
+        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivitySafely(chooser);
+    }
 
     // ---------- emoji / stickers ----------
     private void buildEmojiPanel(LinearLayout root) {
@@ -1107,19 +1711,37 @@ public class PCKeyboardService extends InputMethodService {
     // VOICE TYPING
     // =====================================
 
+    private final Runnable voiceStopTimeout = new Runnable() {
+        @Override
+        public void run() {
+            // stopListening() never delivered a result -> give up cleanly
+            if (listening) cancelVoice();
+        }
+    };
+
     private void toggleVoice() {
         if (listening) {
-            if (recognizer != null) recognizer.stopListening();
+            if (recognizer != null) {
+                try {
+                    recognizer.stopListening();   // final result (or error) arrives in the listener
+                    handler.postDelayed(voiceStopTimeout, 6000);
+                } catch (RuntimeException e) {
+                    cancelVoice();
+                }
+            }
+            return;
+        }
+        if (isPasswordField()) {
+            Toast.makeText(this, "Password field me voice typing band hai", Toast.LENGTH_SHORT).show();
             return;
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             Toast.makeText(this, "Pehle mic permission allow karo", Toast.LENGTH_LONG).show();
-            requestHideSelf(0);
             Intent i = new Intent(this, ThemeActivity.class);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             i.putExtra("ask_mic", true);
-            startActivity(i);
+            if (startActivitySafely(i)) requestHideSelf(0);
             return;
         }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
@@ -1130,8 +1752,85 @@ public class PCKeyboardService extends InputMethodService {
         startVoice();
     }
 
+    /**
+     * True when the user has some text selected in the field right now.
+     * Fails safe: if the editor cannot tell us (getSelectedText throws), the answer is "yes,
+     * there may be a selection", so the callers abort the voice session instead of risking
+     * an overwrite of the user's text.
+     */
+    private boolean hasUserSelection(InputConnection ic) {
+        if (ic == null) return false;
+        try {
+            CharSequence selected = ic.getSelectedText(0);
+            return selected != null && selected.length() > 0;
+        } catch (RuntimeException e) {
+            return true;   // unknown -> treat as selected -> caller aborts voice typing
+        }
+    }
+
+    /**
+     * The user selected text while dictation was active. Voice typing must never replace that
+     * selection, so the session is stopped and invalidated (late callbacks are ignored).
+     * Text that was already committed is left untouched; unfinished partial text is only
+     * finished as normal text (never deleted), because removing it could hit the selection.
+     */
+    private void abortVoiceForSelection() {
+        cancelVoice();   // invalidates the session; clearVoiceComposing() has the selection guard
+        Toast.makeText(this, "Text select hai, isliye voice typing band ki (text safe hai)",
+                Toast.LENGTH_SHORT).show();
+    }
+
+    /** Removes only the unfinished partial text we put in the field. Committed text is never touched. */
+    private void clearVoiceComposing() {
+        if (!voiceComposing) return;
+        voiceComposing = false;
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        try {
+            CharSequence selected = ic.getSelectedText(0);
+            if (selected != null && selected.length() > 0) {
+                // the user has selected other text meanwhile: keep it, just end composing
+                ic.finishComposingText();
+                return;
+            }
+            ic.commitText("", 1);   // replaces only the composing region with nothing
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    private String voiceErrorMessage(int error) {
+        switch (error) {
+            case SpeechRecognizer.ERROR_NO_MATCH:
+            case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
+                return "Kuch sunai nahi diya, phir try karo";
+            case SpeechRecognizer.ERROR_NETWORK:
+            case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
+                return "Internet check karo, phir try karo";
+            case SpeechRecognizer.ERROR_AUDIO:
+                return "Mic use nahi ho pa raha";
+            case SpeechRecognizer.ERROR_SERVER:
+                return "Voice server error, thodi der baad try karo";
+            case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
+                return "Voice service busy hai, phir try karo";
+            case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
+                return "Mic permission nahi hai";
+            case SpeechRecognizer.ERROR_CLIENT:
+                return null;   // normal result of cancel(), nothing to tell the user
+            case 10:   // ERROR_TOO_MANY_REQUESTS (API 31)
+            case 11:   // ERROR_SERVER_DISCONNECTED (API 31)
+                return "Voice service abhi available nahi hai";
+            case 12:   // ERROR_LANGUAGE_NOT_SUPPORTED (API 33)
+            case 13:   // ERROR_LANGUAGE_UNAVAILABLE (API 33)
+                return "Ye language voice ke liye available nahi, English/Hindi badal ke dekho";
+            default:
+                return "Voice typing fail ho gayi";
+        }
+    }
+
     private void startVoice() {
         destroyRecognizer();
+        final int session = ++voiceSession;
+        voiceComposing = false;
         recognizer = SpeechRecognizer.createSpeechRecognizer(this);
         recognizer.setRecognitionListener(new RecognitionListener() {
             @Override public void onReadyForSpeech(Bundle params) { }
@@ -1143,36 +1842,52 @@ public class PCKeyboardService extends InputMethodService {
 
             @Override
             public void onPartialResults(Bundle partial) {
-                ArrayList<String> p = partial.getStringArrayList(
-                        SpeechRecognizer.RESULTS_RECOGNITION);
+                if (session != voiceSession || !listening) return;
+                ArrayList<String> p = partial == null ? null
+                        : partial.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                if (p == null || p.isEmpty() || p.get(0).trim().isEmpty()) return;
                 InputConnection ic = getCurrentInputConnection();
-                if (ic != null && p != null && !p.isEmpty()) ic.setComposingText(p.get(0), 1);
+                if (ic == null || isPasswordField()) return;
+                if (hasUserSelection(ic)) {
+                    abortVoiceForSelection();
+                    return;
+                }
+                ic.setComposingText(p.get(0), 1);
+                voiceComposing = true;
             }
 
             @Override
             public void onResults(Bundle results) {
-                ArrayList<String> r = results.getStringArrayList(
-                        SpeechRecognizer.RESULTS_RECOGNITION);
+                if (session != voiceSession) return;
+                ArrayList<String> r = results == null ? null
+                        : results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                String text = (r == null || r.isEmpty() || r.get(0) == null) ? "" : r.get(0).trim();
                 InputConnection ic = getCurrentInputConnection();
-                if (ic != null) {
-                    if (r != null && !r.isEmpty()) ic.commitText(r.get(0) + " ", 1);
-                    else ic.finishComposingText();
+                if (hasUserSelection(ic)) {
+                    abortVoiceForSelection();        // never overwrite the user's selection
+                    return;
                 }
-                composingWord = "";
+                if (!text.isEmpty() && ic != null && !isPasswordField()) {
+                    voiceComposing = false;          // final text replaces the partial text
+                    ic.commitText(text + " ", 1);
+                    composingWord = "";
+                } else {
+                    clearVoiceComposing();
+                    if (text.isEmpty()) {
+                        Toast.makeText(PCKeyboardService.this, "Kuch sunai nahi diya, phir try karo",
+                                Toast.LENGTH_SHORT).show();
+                    }
+                }
                 endVoiceUi();
             }
 
             @Override
             public void onError(int error) {
-                InputConnection ic = getCurrentInputConnection();
-                if (ic != null) ic.finishComposingText();
-                if (error == SpeechRecognizer.ERROR_NO_MATCH
-                        || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-                    Toast.makeText(PCKeyboardService.this, "Kuch sunai nahi diya, phir try karo",
-                            Toast.LENGTH_SHORT).show();
-                } else if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
-                    Toast.makeText(PCKeyboardService.this, "Mic permission nahi hai",
-                            Toast.LENGTH_SHORT).show();
+                if (session != voiceSession) return;
+                clearVoiceComposing();   // drop the unfinished partial text only
+                String msg = voiceErrorMessage(error);
+                if (msg != null) {
+                    Toast.makeText(PCKeyboardService.this, msg, Toast.LENGTH_SHORT).show();
                 }
                 endVoiceUi();
             }
@@ -1183,12 +1898,31 @@ public class PCKeyboardService extends InputMethodService {
         it.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
         it.putExtra(RecognizerIntent.EXTRA_LANGUAGE, voiceLang);
         listening = true;
+        if (!mobileLayout) Toast.makeText(this, "🎙 Bolo…", Toast.LENGTH_SHORT).show();
         refreshMicUi();
         updateSuggestions();
-        recognizer.startListening(it);
+        try {
+            recognizer.startListening(it);
+        } catch (RuntimeException e) {
+            clearVoiceComposing();
+            Toast.makeText(this, "Voice typing shuru nahi ho saki", Toast.LENGTH_SHORT).show();
+            endVoiceUi();
+        }
     }
 
+    /** Normal end of a dictation (result or error already handled). */
     private void endVoiceUi() {
+        handler.removeCallbacks(voiceStopTimeout);
+        listening = false;
+        destroyRecognizer();
+        refreshMicUi();
+        updateSuggestions();
+    }
+
+    /** Abort: clears unfinished partial text, keeps everything already committed. */
+    private void cancelVoice() {
+        handler.removeCallbacks(voiceStopTimeout);
+        clearVoiceComposing();
         listening = false;
         destroyRecognizer();
         refreshMicUi();
@@ -1196,14 +1930,11 @@ public class PCKeyboardService extends InputMethodService {
     }
 
     private void stopVoiceNow() {
-        if (listening || recognizer != null) {
-            listening = false;
-            destroyRecognizer();
-            refreshMicUi();
-        }
+        if (listening || recognizer != null || voiceComposing) cancelVoice();
     }
 
     private void destroyRecognizer() {
+        voiceSession++;   // callbacks of the old recognizer are ignored from now on
         if (recognizer != null) {
             try {
                 recognizer.cancel();
@@ -1280,6 +2011,7 @@ public class PCKeyboardService extends InputMethodService {
                     v.setScaleX(0.95f);
                     v.setScaleY(0.95f);
                     haptic(v);
+                    if (allowLongPress) showPreview(v, currentLabel(spec));
                     if ("BACKSPACE".equals(spec.action)) {
                         repeating = true;
                         handleKey(spec);
@@ -1307,6 +2039,7 @@ public class PCKeyboardService extends InputMethodService {
         private void release(View v) {
             handler.removeCallbacks(repeat);
             handler.removeCallbacks(longPress);
+            hidePreview();
             repeating = false;
             v.setAlpha(1f);
             v.setScaleX(1f);
@@ -1519,6 +2252,7 @@ public class PCKeyboardService extends InputMethodService {
             return;
         }
 
+        if (listening) cancelVoice();   // a key press ends dictation; unfinished partial text is removed
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
         boolean hadMods = hasOneShotModifier();
@@ -1538,8 +2272,11 @@ public class PCKeyboardService extends InputMethodService {
                     composingWord = "";
                 } else {
                     ic.commitText(value, 1);
-                    if (value.matches("[a-zA-Z']+")) composingWord += value;
-                    else endWord();
+                    if (value.matches("[a-zA-Z']+")) {
+                        if (!noSuggestField()) composingWord += value;
+                    } else {
+                        endWord();
+                    }
                 }
             }
             clearOneShotModifiers();
@@ -1622,12 +2359,35 @@ public class PCKeyboardService extends InputMethodService {
                 break;
 
             case "CTRL": ctrl = !ctrl; refresh(); break;
-            case "ALT": alt = !alt; refresh(); break;
+            case "ALT":
+                if (alt) {   // second tap = press the Alt key itself
+                    alt = false;
+                    sendKeyEventsWithMods(ic, KeyEvent.KEYCODE_ALT_LEFT, false, false, false, false, false);
+                } else {
+                    alt = true;
+                }
+                refresh();
+                break;
             case "ALTGR": altGr = !altGr; refresh(); break;
-            case "WIN": win = !win; refresh(); break;
+            case "WIN":
+                if (win) {   // second tap = press the Win / Meta key itself
+                    win = false;
+                    sendKeyEventsWithMods(ic, KeyEvent.KEYCODE_META_LEFT, false, false, false, false, false);
+                } else {
+                    win = true;
+                }
+                refresh();
+                break;
+
+            case "TEXT":
+                ic.commitText(spec.symbol, 1);
+                composingWord = "";
+                clearOneShotModifiers();
+                finishKey(hadMods);
+                break;
 
             case "PC_SEND":
-                sendPcKey(ic, spec.symbol);
+                if (!handleSystemKey(spec.symbol)) sendPcKey(ic, spec.symbol);
                 clearOneShotModifiers();
                 if (hadMods) refresh();
                 break;

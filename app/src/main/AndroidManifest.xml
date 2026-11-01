@@ -35,7 +35,7 @@
         <!-- Keyboard theme settings -->
         <activity
             android:name=".ThemeActivity"
-            android:exported="false"
+            android:exported="true"
             android:label="Keyboard Theme" />
 
         <!-- PC Music Keyboard input method -->
