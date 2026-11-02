@@ -1,4 +1,4 @@
-name: Build PC Music Keyboard APK
+name: Build KeyPilot APK
 
 "on":
   push:

@@ -16,7 +16,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="PC Music Keyboard"
+        android:label="KeyPilot"
         android:theme="@style/AppTheme"
         android:supportsRtl="true">
 
@@ -38,10 +38,10 @@
             android:exported="true"
             android:label="Keyboard Theme" />
 
-        <!-- PC Music Keyboard input method -->
+        <!-- KeyPilot input method -->
         <service
             android:name=".PCKeyboardService"
-            android:label="PC Music Keyboard"
+            android:label="KeyPilot"
             android:permission="android.permission.BIND_INPUT_METHOD"
             android:exported="true">
 

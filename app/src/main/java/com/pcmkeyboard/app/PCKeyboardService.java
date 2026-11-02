@@ -715,7 +715,25 @@ public class PCKeyboardService extends InputMethodService {
         super.onFinishInputView(finishingInput);
     }
 
+        /** Bumped on every keyboard rebuild: key-repeat loops started before it must stop. */
+    private int repeatGen = 0;
+
+    /** True when backspace has nothing left to delete (empty field, no selection). */
+    private boolean nothingToDelete() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return true;
+        try {
+            CharSequence before = ic.getTextBeforeCursor(1, 0);
+            CharSequence selected = ic.getSelectedText(0);
+            return before != null && before.length() == 0
+                    && (selected == null || selected.length() == 0);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
     private void refresh() {
+        repeatGen++;
         handler.removeCallbacksAndMessages(null);
         hidePreview();
         setInputView(onCreateInputView());
@@ -840,21 +858,21 @@ public class PCKeyboardService extends InputMethodService {
                     pcKey("8", "*"), pcKey("9", "("), pcKey("0", ")"), pcKey("-", "_"),
                     pcKey("=", "+"),
                     k("⌫", "", "", "", DARK, 1f, "BACKSPACE")
-            }, 48);
+            }, 55);
             addRow(board, new KeySpec[]{
                     k("Tab", "", "", "", DARK, 1.5f, "TAB"),
                     pcLetter("q"), pcLetter("w"), pcLetter("e"), pcLetter("r"), pcLetter("t"),
                     pcLetter("y"), pcLetter("u"), pcLetter("i"), pcLetter("o"), pcLetter("p"),
                     pcKey("[", "{"), pcKey("]", "}"),
                     k("\\", "|", "|", "", LIGHT, 1.5f, null)
-            }, 48);
+            }, 55);
             addRow(board, new KeySpec[]{
                     k("Caps", "", "", "", DARK, 1.75f, "CAPS"),
                     pcLetter("a"), pcLetter("s"), pcLetter("d"), pcLetter("f"), pcLetter("g"),
                     pcLetter("h"), pcLetter("j"), pcLetter("k"), pcLetter("l"),
                     pcKey(";", ":"), pcKey("'", "\""),
                     k("Enter", "", "", "", RED, 2.25f, "ENTER")
-            }, 48);
+            }, 55);
             addRow(board, new KeySpec[]{
                     k("Shift", "", "", "", DARK, 2.5f, "SHIFT"),
                     pcLetter("z"), pcLetter("x"), pcLetter("c"), pcLetter("v"), pcLetter("b"),
@@ -862,7 +880,7 @@ public class PCKeyboardService extends InputMethodService {
                     pcKey(",", "<"), pcKey(".", ">"), pcKey("/", "?"),
                     send("↑", "DPAD_UP", DARK, 1f),
                     send("Del", "FORWARD_DEL", DARK, 1.5f)
-            }, 48);
+            }, 55);
             addRow(board, new KeySpec[]{
                     k("Ctrl", "", "", "", DARK, 1.5f, "CTRL"),
                     k("Win", "", "", "", DARK, 1.25f, "WIN"),
@@ -871,7 +889,7 @@ public class PCKeyboardService extends InputMethodService {
                     send("←", "DPAD_LEFT", DARK, 1f),
                     send("↓", "DPAD_DOWN", DARK, 1f),
                     send("→", "DPAD_RIGHT", DARK, 1f)
-            }, 48);
+            }, 55);
 
         } else if ("function".equals(pcPanel)) {
             addRow(board, new KeySpec[]{
@@ -1344,7 +1362,7 @@ public class PCKeyboardService extends InputMethodService {
         micView.setOnLongClickListener(v -> {
             voiceLang = "en-IN".equals(voiceLang) ? "hi-IN" : "en-IN";
             prefs().edit().putString("voice_lang", voiceLang).apply();
-            Toast.makeText(this, "Voice: " + ("hi-IN".equals(voiceLang) ? "Hindi" : "English (India)"),
+            Toast.makeText(this, "Voice language: " + ("hi-IN".equals(voiceLang) ? "Hindi" : "English (India)"),
                     Toast.LENGTH_SHORT).show();
             return true;
         });
@@ -1366,6 +1384,7 @@ public class PCKeyboardService extends InputMethodService {
     private void refreshMicUi() {
         if (micView == null) return;
         micView.setText(listening ? "⏹" : "🎤");
+        micView.setAlpha(prefs().getBoolean("voice_enabled", true) ? 1f : 0.45f);
         micView.setTextColor(listening ? Color.WHITE : darkText);
         if (listening) {
             micView.setBackground(shape(redKey, 10, redKey));
@@ -1403,7 +1422,7 @@ public class PCKeyboardService extends InputMethodService {
         sugMiddle.removeAllViews();
         if (listening) {
             TextView t = new TextView(this);
-            t.setText("🎙 Bolo… (" + ("hi-IN".equals(voiceLang) ? "Hindi" : "English") + ")");
+            t.setText("🎙 Speak now (" + ("hi-IN".equals(voiceLang) ? "Hindi" : "English") + ")");
             t.setTextColor(accent);
             t.setTextSize(14);
             t.setTypeface(Typeface.DEFAULT_BOLD);
@@ -1411,23 +1430,8 @@ public class PCKeyboardService extends InputMethodService {
             sugMiddle.addView(t, new LinearLayout.LayoutParams(-1, -1));
             return;
         }
-        if (composingWord.isEmpty()) {
-            // idle toolbar: sticker/emoji + language, like Gboard
-            TextView sticker = iconButton("😊");
-            sticker.setOnClickListener(v -> {
-                haptic(v);
-                emojiOpen = true;
-                refresh();
-            });
-            sugMiddle.addView(sticker, new LinearLayout.LayoutParams(0, -1, 1f));
-            TextView lang = iconButton("🌐");
-            lang.setOnClickListener(v -> {
-                haptic(v);
-                showSystemKeyboardPicker();
-            });
-            sugMiddle.addView(lang, new LinearLayout.LayoutParams(0, -1, 1f));
-            return;
-        }
+        if (composingWord.isEmpty()) return;
+
         List<String> list = getSuggestions();
         for (int i = 0; i < list.size(); i++) {
             final String word = list.get(i);
@@ -1482,13 +1486,9 @@ public class PCKeyboardService extends InputMethodService {
     // ---------- grid menu (Settings / Share / Languages / Switch to Mobile) ----------
     private void buildMenuPanel(LinearLayout root) {
         String[][] items = {
-                {"↩", "Undo", "UNDO"},
+
                 {"⚙", "Settings  ›", "SETTINGS"},
-                {"🔗", "Share text", "SHARE"},
-                {"🌐", "Languages", "LANG"},
-                {"📱", mobileLayout ? "Switch to PC" : "Switch to Mobile", "MOBILE"},
-                {"🎤", "Voice typing", "VOICE"},
-                {"⌨", "Hide keyboard", "HIDE"}
+                {"🔄", mobileLayout ? "Switch to PC" : "Switch to Mobile", "MOBILE"},
         };
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -1731,13 +1731,19 @@ public class PCKeyboardService extends InputMethodService {
             }
             return;
         }
+        if (!prefs().getBoolean("voice_enabled", true)) {
+            Toast.makeText(this,
+                    "Voice typing is turned off in KeyPilot Settings.",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
         if (isPasswordField()) {
-            Toast.makeText(this, "Password field me voice typing band hai", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Voice typing is unavailable in password fields.", Toast.LENGTH_SHORT).show();
             return;
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, "Pehle mic permission allow karo", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Microphone permission is required for voice typing.", Toast.LENGTH_LONG).show();
             Intent i = new Intent(this, ThemeActivity.class);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             i.putExtra("ask_mic", true);
@@ -1745,7 +1751,7 @@ public class PCKeyboardService extends InputMethodService {
             return;
         }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            Toast.makeText(this, "Is phone me voice service nahi mili (Google app check karo)",
+            Toast.makeText(this, "Speech recognition is unavailable on this device. Check your speech service.",
                     Toast.LENGTH_LONG).show();
             return;
         }
@@ -1776,7 +1782,7 @@ public class PCKeyboardService extends InputMethodService {
      */
     private void abortVoiceForSelection() {
         cancelVoice();   // invalidates the session; clearVoiceComposing() has the selection guard
-        Toast.makeText(this, "Text select hai, isliye voice typing band ki (text safe hai)",
+        Toast.makeText(this, "Text is selected, so voice typing stopped to protect it.",
                 Toast.LENGTH_SHORT).show();
     }
 
@@ -1802,28 +1808,28 @@ public class PCKeyboardService extends InputMethodService {
         switch (error) {
             case SpeechRecognizer.ERROR_NO_MATCH:
             case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
-                return "Kuch sunai nahi diya, phir try karo";
+                return "No speech detected. Please try again.";
             case SpeechRecognizer.ERROR_NETWORK:
             case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
-                return "Internet check karo, phir try karo";
+                return "Check your internet connection and try again.";
             case SpeechRecognizer.ERROR_AUDIO:
-                return "Mic use nahi ho pa raha";
+                return "The microphone could not be used.";
             case SpeechRecognizer.ERROR_SERVER:
-                return "Voice server error, thodi der baad try karo";
+                return "Speech recognition service error. Please try again later.";
             case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
-                return "Voice service busy hai, phir try karo";
+                return "Speech recognition is busy. Please try again.";
             case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
-                return "Mic permission nahi hai";
+                return "Microphone permission is not granted.";
             case SpeechRecognizer.ERROR_CLIENT:
                 return null;   // normal result of cancel(), nothing to tell the user
             case 10:   // ERROR_TOO_MANY_REQUESTS (API 31)
             case 11:   // ERROR_SERVER_DISCONNECTED (API 31)
-                return "Voice service abhi available nahi hai";
+                return "Speech recognition is temporarily unavailable.";
             case 12:   // ERROR_LANGUAGE_NOT_SUPPORTED (API 33)
             case 13:   // ERROR_LANGUAGE_UNAVAILABLE (API 33)
-                return "Ye language voice ke liye available nahi, English/Hindi badal ke dekho";
+                return "This language is unavailable. Long-press the microphone to switch languages.";
             default:
-                return "Voice typing fail ho gayi";
+                return "Voice typing failed. Please try again.";
         }
     }
 
@@ -1874,7 +1880,7 @@ public class PCKeyboardService extends InputMethodService {
                 } else {
                     clearVoiceComposing();
                     if (text.isEmpty()) {
-                        Toast.makeText(PCKeyboardService.this, "Kuch sunai nahi diya, phir try karo",
+                        Toast.makeText(PCKeyboardService.this, "No speech detected. Please try again.",
                                 Toast.LENGTH_SHORT).show();
                     }
                 }
@@ -1898,14 +1904,14 @@ public class PCKeyboardService extends InputMethodService {
         it.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
         it.putExtra(RecognizerIntent.EXTRA_LANGUAGE, voiceLang);
         listening = true;
-        if (!mobileLayout) Toast.makeText(this, "🎙 Bolo…", Toast.LENGTH_SHORT).show();
+        if (!mobileLayout) Toast.makeText(this, "🎙 Speak now…", Toast.LENGTH_SHORT).show();
         refreshMicUi();
         updateSuggestions();
         try {
             recognizer.startListening(it);
         } catch (RuntimeException e) {
             clearVoiceComposing();
-            Toast.makeText(this, "Voice typing shuru nahi ho saki", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Voice typing could not start.", Toast.LENGTH_SHORT).show();
             endVoiceUi();
         }
     }
@@ -1978,13 +1984,30 @@ public class PCKeyboardService extends InputMethodService {
         private final KeySpec spec;
         private final boolean allowLongPress;
         private boolean consumed = false;
-        private boolean repeating = false;
+                private boolean repeating = false;
+        private int pressGen = 0;
         private View target;
+
+        /** Stops hold-to-repeat and makes sure the finger release does not delete once more. */
+        private void stopRepeat() {
+            repeating = false;
+            consumed = true;
+            handler.removeCallbacks(repeat);
+        }
 
         private final Runnable repeat = new Runnable() {
             @Override public void run() {
+                if (!repeating || pressGen != repeatGen || target == null
+                        || !target.isAttachedToWindow() || nothingToDelete()) {
+                    stopRepeat();
+                    return;
+                }
                 handleKey(spec);
-                handler.postDelayed(this, 50);
+                if (repeating && pressGen == repeatGen && target.isAttachedToWindow()) {
+                    handler.postDelayed(this, 50);
+                } else {
+                    stopRepeat();
+                }
             }
         };
         private final Runnable longPress = new Runnable() {
@@ -2012,10 +2035,15 @@ public class PCKeyboardService extends InputMethodService {
                     v.setScaleY(0.95f);
                     haptic(v);
                     if (allowLongPress) showPreview(v, currentLabel(spec));
-                    if ("BACKSPACE".equals(spec.action)) {
+                                        if ("BACKSPACE".equals(spec.action)) {
                         repeating = true;
+                        pressGen = repeatGen;
                         handleKey(spec);
-                        handler.postDelayed(repeat, 400);
+                        if (pressGen == repeatGen) {
+                            handler.postDelayed(repeat, 400);
+                        } else {
+                            stopRepeat();
+                        }
                     } else if (allowLongPress) {
                         handler.postDelayed(longPress, 380);
                     }

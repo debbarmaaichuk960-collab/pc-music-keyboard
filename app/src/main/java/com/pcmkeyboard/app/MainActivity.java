@@ -135,12 +135,12 @@ public class MainActivity extends Activity {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
 
-        TextView brand = text("PC MUSIC KEYBOARD", 23, white);
+        TextView brand = text("KeyPilot", 23, white);
         brand.setTypeface(Typeface.DEFAULT_BOLD);
         content.addView(brand);
 
         TextView subtitle = text(
-                "MECHANICAL • MUSIC • CUSTOMIZATION",
+                "SMART • EASY • POWERFUL",
                 11, Color.LTGRAY);
         subtitle.setPadding(0, 4, 0, 20);
         content.addView(subtitle);
@@ -197,7 +197,7 @@ public class MainActivity extends Activity {
                         Settings.ACTION_INPUT_METHOD_SETTINGS)));
         content.addView(enable, fullWidth());
 
-        Button choose = button("Select PC Music Keyboard", panel);
+        Button choose = button("Select KeyPilot", panel);
         choose.setOnClickListener(v -> {
             InputMethodManager imm =
                     (InputMethodManager)
@@ -218,21 +218,15 @@ public class MainActivity extends Activity {
         addSpace(content, 8);
 
         Button settings = button("⚙  Keyboard Settings", panel);
-        settings.setOnClickListener(v -> showInfo(
-                "Keyboard Settings",
-                "Theme, key size, vibration and sound controls will be added."));
+        settings.setOnClickListener(v ->
+                startActivity(new Intent(this, ThemeActivity.class)));
         content.addView(settings, fullWidth());
 
-        Button music = button("♫  Music Studio", panel);
-        music.setOnClickListener(v -> showInfo(
-                "Music Studio",
-                "Guitar, piano, different drum sets, synthesizer and recording features are planned."));
-        content.addView(music, fullWidth());
 
-        Button about = button("ⓘ  About PC Music Keyboard", panel);
+        Button about = button("ⓘ  About KeyPilot", panel);
         about.setOnClickListener(v -> showInfo(
                 "About",
-                "PC Music Keyboard\nVersion 1.0\nA customizable keyboard for typing and music."));
+                "KeyPilot\nVersion 1.0\nYour Keyboard, Your Control.\nSmart, Easy and Powerful typing with customizable PC-style layouts."));
         content.addView(about, fullWidth());
 
         addSpace(content, 22);

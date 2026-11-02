@@ -114,6 +114,12 @@ public class ThemeActivity extends Activity {
         else super.onBackPressed();
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (col != null && page == 0) render();
+    }
+
     private void go(int p) {
         page = p;
         render();
@@ -304,6 +310,96 @@ public class ThemeActivity extends Activity {
         return sw;
     }
 
+    private View settingSwitch(String title, String description,
+                               String key, boolean def) {
+        LinearLayout holder = new LinearLayout(this);
+        holder.setOrientation(LinearLayout.HORIZONTAL);
+        holder.setGravity(Gravity.CENTER_VERTICAL);
+        holder.setPadding(dp(4), dp(12), dp(4), dp(12));
+
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.addView(text(title, 18, C_TEXT, true));
+
+        TextView detail = text(description, 13, C_SUB, false);
+        detail.setPadding(0, dp(3), dp(8), 0);
+        labels.addView(detail);
+
+        Switch control = new Switch(this);
+        control.setChecked(prefs.getBoolean(key, def));
+        control.setOnCheckedChangeListener((button, enabled) -> {
+            prefs.edit().putBoolean(key, enabled).apply();
+            bump();
+        });
+
+        holder.addView(labels, new LinearLayout.LayoutParams(0, -2, 1f));
+        holder.addView(control, new LinearLayout.LayoutParams(-2, -2));
+        holder.setOnClickListener(v -> control.setChecked(!control.isChecked()));
+        return holder;
+    }
+
+    private void openMicSettings() {
+        Intent intent = new Intent(
+                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+        intent.setData(Uri.fromParts("package", getPackageName(), null));
+        try {
+            startActivity(intent);
+        } catch (RuntimeException e) {
+            Toast.makeText(this, "Could not open Android app settings.",
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private String appVersionName() {
+        try {
+            String version = getPackageManager()
+                    .getPackageInfo(getPackageName(), 0).versionName;
+            return version == null ? "1.0" : version;
+        } catch (PackageManager.NameNotFoundException e) {
+            return "1.0";
+        }
+    }
+
+    private void showAboutDialog() {
+        String message = "KeyPilot\\n"
+                + "Version " + appVersionName() + "\\n"
+                + "Your Keyboard, Your Control.\\n\\n"
+                + "Smart • Easy • Powerful\\n\\n"
+                + "A customizable PC-style and mobile keyboard with "
+                + "keyboard themes and optional voice typing.";
+
+        new AlertDialog.Builder(this)
+                .setTitle("About KeyPilot")
+                .setMessage(message)
+                .setPositiveButton("Close", null)
+                .show();
+    }
+
+    private void showPrivacyPolicyDialog() {
+        String policy =
+                "KeyPilot uses the microphone only when you tap the keyboard "
+                + "microphone and grant microphone permission.\\n\\n"
+                + "Speech is processed by the Android speech recognition "
+                + "service selected on your device. Depending on your device "
+                + "and provider, processing may happen on-device or online. "
+                + "The selected provider's privacy policy applies to its "
+                + "handling of audio.\\n\\n"
+                + "KeyPilot does not create or store audio recording files. "
+                + "Keyboard preferences, saved theme images and learned words "
+                + "are stored in the app's private storage on your device. "
+                + "You can clear learned words in Settings and delete saved "
+                + "theme images from My themes by long-pressing a photo.\\n\\n"
+                + "You can manage microphone access through Android app "
+                + "settings. For privacy questions, use the developer "
+                + "contact email shown on the KeyPilot Google Play listing.";
+
+        new AlertDialog.Builder(this)
+                .setTitle("Privacy Policy")
+                .setMessage(policy)
+                .setPositiveButton("Close", null)
+                .show();
+    }
+
     @SuppressWarnings("deprecation")
     private void testVibration(View v) {
         boolean systemOn;
@@ -319,7 +415,7 @@ public class ThemeActivity extends Activity {
         }
         v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP, flags);
         if (!systemOn && Build.VERSION.SDK_INT >= 33) {
-            Toast.makeText(this, "Phone ki Touch feedback setting band hai, isliye vibration nahi aayegi",
+            Toast.makeText(this, "Touch feedback is turned off in your phone settings, so vibration may not be available.",
                     Toast.LENGTH_LONG).show();
         }
     }
@@ -336,19 +432,22 @@ public class ThemeActivity extends Activity {
     private void buildSettings() {
         header("Settings");
 
+        section("Keyboard");
         col.addView(row("Theme", themeName(), v -> go(1)));
         col.addView(row("Keyboard style",
                 "PC: " + STYLE_NAMES[prefs.getInt("pc_style", 0)] + "   •   Mobile: "
                         + STYLE_NAMES[prefs.getInt("mobile_style", 3)], v -> go(2)));
 
         boolean mobile = "mobile".equals(prefs.getString("keyboard_layout", "pc"));
-        col.addView(row("Default keyboard", mobile ? "Mobile QWERTY" : "PC full layout (tap to switch)",
+        col.addView(row("Default keyboard",
+                mobile ? "Mobile QWERTY" : "PC full layout",
                 v -> {
                     prefs.edit().putString("keyboard_layout", mobile ? "pc" : "mobile").apply();
                     bump();
                     render();
                 }));
 
+        section("Typing feedback");
         Switch haptic = new Switch(this);
         haptic.setText("Key press vibration");
         haptic.setTextSize(19);
@@ -362,36 +461,55 @@ public class ThemeActivity extends Activity {
         col.addView(haptic);
 
         if (Build.VERSION.SDK_INT >= 33) {
-            // Android 13+: the phone's own touch-feedback setting always decides (no bypass possible)
             col.addView(row("Vibration strength",
-                    "Android 13+ follows your phone: Settings > Sound & vibration > Vibration & haptics > Touch feedback",
+                    "Android follows your phone's Touch feedback setting.",
                     null));
         } else {
-            col.addView(prefSwitch("Stronger feedback even if touch feedback is off (Android 12 and below)",
+            col.addView(prefSwitch(
+                    "Stronger feedback when system touch feedback is off",
                     "haptic_force", true));
         }
-        col.addView(row("Test vibration", "Tap to feel one key vibration", v -> testVibration(v)));
+
+        col.addView(row("Test vibration",
+                "Tap to test one key vibration", v -> testVibration(v)));
         col.addView(prefSwitch("Key click sound", "sound", false));
 
-        boolean hi = "hi-IN".equals(prefs.getString("voice_lang", "en-IN"));
-        col.addView(row("Voice typing language", hi ? "Hindi" : "English (India)", v -> {
-            prefs.edit().putString("voice_lang", hi ? "en-IN" : "hi-IN").apply();
-            bump();
-            render();
-        }));
+        section("Voice typing");
+        col.addView(settingSwitch(
+                "Voice typing",
+                "Turn voice dictation on or off from the keyboard microphone.",
+                "voice_enabled", true));
 
         boolean micOk = checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                 == PackageManager.PERMISSION_GRANTED;
-        col.addView(row("Microphone permission", micOk ? "Allowed" : "Tap to allow", v -> requestMic()));
+        col.addView(row("Microphone permission",
+                (micOk ? "Allowed" : "Not allowed")
+                        + " • Tap to manage in Android settings",
+                v -> openMicSettings()));
 
-        col.addView(row("Clear learned words", "Keyboard ne jo words seekhe wo delete karo", v -> {
-            prefs.edit().remove("user_words").putLong("words_reset", System.currentTimeMillis()).apply();
-            Toast.makeText(this, "Learned words clear ho gaye", Toast.LENGTH_SHORT).show();
-        }));
+        section("Personalization");
+        col.addView(row("Clear learned words",
+                "Delete saved word suggestions from this device",
+                v -> new AlertDialog.Builder(this)
+                        .setTitle("Clear learned words?")
+                        .setMessage("This will delete the words KeyPilot has learned on this device.")
+                        .setPositiveButton("Clear", (dialog, which) -> {
+                            prefs.edit().remove("user_words")
+                                    .putLong("words_reset", System.currentTimeMillis())
+                                    .apply();
+                            Toast.makeText(this, "Learned words cleared.",
+                                    Toast.LENGTH_SHORT).show();
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show()));
 
-        TextView tip = text("Theme badalne ke baad keyboard dobara kholo.", 13, C_SUB, false);
-        tip.setPadding(dp(4), dp(24), 0, 0);
-        col.addView(tip);
+        section("About & privacy");
+        col.addView(row("About KeyPilot",
+                "Version " + appVersionName(),
+                v -> showAboutDialog()));
+        col.addView(row("Privacy Policy",
+                "How KeyPilot handles microphone and keyboard data",
+                v -> showPrivacyPolicyDialog()));
     }
 
     // ---------------- page 1: theme ----------------
@@ -485,7 +603,7 @@ public class ThemeActivity extends Activity {
                     },
                     v -> {
                         new AlertDialog.Builder(this)
-                                .setMessage("Ye photo theme delete karein?")
+                                .setMessage("Delete this photo theme?")
                                 .setPositiveButton("Delete", (d, w) -> {
                                     f.delete();
                                     if (f.getName().equals(prefs.getString("bg_file", ""))) {
@@ -502,7 +620,7 @@ public class ThemeActivity extends Activity {
         grid(mine);
 
         if (usePhoto) {
-            TextView dimLabel = text("Photo dimming (keys saaf dikhne ke liye)", 14, C_SUB, false);
+            TextView dimLabel = text("Photo dimming (improves key visibility)", 14, C_SUB, false);
             dimLabel.setPadding(0, dp(4), 0, dp(4));
             col.addView(dimLabel);
             SeekBar dim = new SeekBar(this);
@@ -516,7 +634,7 @@ public class ThemeActivity extends Activity {
                 @Override public void onStopTrackingTouch(SeekBar s) { bump(); }
             });
             col.addView(dim);
-            TextView hint = text("Photo pe long-press karo = delete", 12, C_SUB, false);
+            TextView hint = text("Long-press a photo to delete it", 12, C_SUB, false);
             hint.setPadding(0, dp(6), 0, 0);
             col.addView(hint);
         }
@@ -640,7 +758,7 @@ public class ThemeActivity extends Activity {
         for (int i = 0; i < 4; i++) mb.add(styleTile(i, true, i == ms));
         grid(mb);
 
-        TextView tip = text("Tile ka colour tumhari current theme ka hai.", 12, C_SUB, false);
+        TextView tip = text("Tile colours follow your current theme.", 12, C_SUB, false);
         tip.setPadding(dp(4), dp(8), 0, 0);
         col.addView(tip);
     }
@@ -650,7 +768,7 @@ public class ThemeActivity extends Activity {
     private void requestMic() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                 == PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, "Mic permission already di hui hai", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Microphone permission is already granted.", Toast.LENGTH_SHORT).show();
             return;
         }
         requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_MIC);
@@ -661,7 +779,7 @@ public class ThemeActivity extends Activity {
         super.onRequestPermissionsResult(code, perms, results);
         if (code == REQ_MIC) {
             boolean ok = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
-            Toast.makeText(this, ok ? "Mic ready — keyboard me 🎤 dabao" : "Mic permission nahi mili",
+            Toast.makeText(this, ok ? "Microphone ready. Tap the keyboard microphone to start voice typing." : "Microphone permission was not granted.",
                     Toast.LENGTH_LONG).show();
             if (ok && getIntent().getBooleanExtra("ask_mic", false)) finish();
             else if (page == 0) render();
@@ -683,10 +801,10 @@ public class ThemeActivity extends Activity {
         if (req == REQ_PICK && res == RESULT_OK && data != null && data.getData() != null) {
             try {
                 saveBackground(data.getData());
-                Toast.makeText(this, "Photo theme laga di ✔", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Photo theme applied ✔", Toast.LENGTH_SHORT).show();
                 render();
             } catch (Exception e) {
-                Toast.makeText(this, "Photo load nahi hui", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Could not load the photo.", Toast.LENGTH_LONG).show();
             }
         }
     }
