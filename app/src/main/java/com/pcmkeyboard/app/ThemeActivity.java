@@ -360,13 +360,20 @@ public class ThemeActivity extends Activity {
         }
     }
 
+    private static final String PRIVACY_POLICY_URL =
+            "https://debbarmaaichuk960-collab.github.io/pc-music-keyboard/privacy-policy.html";
+    private static final String SUPPORT_EMAIL = "support.keypilot@gmail.com";
+
     private void showAboutDialog() {
-        String message = "KeyPilot\\n"
-                + "Version " + appVersionName() + "\\n"
-                + "Your Keyboard, Your Control.\\n\\n"
-                + "Smart • Easy • Powerful\\n\\n"
-                + "A customizable PC-style and mobile keyboard with "
-                + "keyboard themes and optional voice typing.";
+        String message = "KeyPilot\n"
+                + "Version " + appVersionName() + "\n"
+                + "Your Keyboard, Your Control.\n\n"
+                + "A customizable Android keyboard for everyday typing. "
+                + "Choose a full PC-style layout or a familiar mobile QWERTY layout, "
+                + "personalize themes and key styles, and adjust typing feedback. "
+                + "Optional voice typing is available through your device's speech "
+                + "recognition service.\n\n"
+                + "Support: " + SUPPORT_EMAIL;
 
         new AlertDialog.Builder(this)
                 .setTitle("About KeyPilot")
@@ -376,26 +383,36 @@ public class ThemeActivity extends Activity {
     }
 
     private void showPrivacyPolicyDialog() {
-        String policy =
-                "KeyPilot uses the microphone only when you tap the keyboard "
-                + "microphone and grant microphone permission.\\n\\n"
-                + "Speech is processed by the Android speech recognition "
-                + "service selected on your device. Depending on your device "
-                + "and provider, processing may happen on-device or online. "
-                + "The selected provider's privacy policy applies to its "
-                + "handling of audio.\\n\\n"
-                + "KeyPilot does not create or store audio recording files. "
-                + "Keyboard preferences, saved theme images and learned words "
-                + "are stored in the app's private storage on your device. "
-                + "You can clear learned words in Settings and delete saved "
-                + "theme images from My themes by long-pressing a photo.\\n\\n"
-                + "You can manage microphone access through Android app "
-                + "settings. For privacy questions, use the developer "
-                + "contact email shown on the KeyPilot Google Play listing.";
+        String summary =
+                "KeyPilot processes text locally to provide keyboard input and "
+                + "suggestions. It does not send your typed text to a KeyPilot server. "
+                + "Some accepted word suggestions may be saved in private app storage "
+                + "on your device. Suggestions and learning are disabled in password "
+                + "and other sensitive or no-suggestions fields.\n\n"
+                + "Voice typing starts only when you tap the microphone and allow "
+                + "microphone permission. Speech is handled by the Android speech "
+                + "recognition service you use; that provider may process audio "
+                + "on-device or online under its own privacy terms. KeyPilot does not "
+                + "save audio recording files.\n\n"
+                + "If you explicitly choose Share from the keyboard menu, the selected "
+                + "or current field text is passed to the sharing app you choose. "
+                + "Theme photos and keyboard preferences are kept in private app "
+                + "storage.\n\n"
+                + "Full policy: " + PRIVACY_POLICY_URL + "\n"
+                + "Privacy/support: " + SUPPORT_EMAIL;
 
         new AlertDialog.Builder(this)
                 .setTitle("Privacy Policy")
-                .setMessage(policy)
+                .setMessage(summary)
+                .setNeutralButton("Open full policy", (dialog, which) -> {
+                    try {
+                        Intent open = new Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_POLICY_URL));
+                        startActivity(open);
+                    } catch (RuntimeException e) {
+                        Toast.makeText(this, "Could not open the privacy policy.",
+                                Toast.LENGTH_SHORT).show();
+                    }
+                })
                 .setPositiveButton("Close", null)
                 .show();
     }

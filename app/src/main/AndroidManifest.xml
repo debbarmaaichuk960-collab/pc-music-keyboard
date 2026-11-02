@@ -15,7 +15,7 @@
     </queries>
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:label="KeyPilot"
         android:theme="@style/AppTheme"
         android:supportsRtl="true">
