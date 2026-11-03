@@ -226,12 +226,12 @@ public class MainActivity extends Activity {
         Button about = button("ⓘ About KeyPilot", panel);
 about.setOnClickListener(v -> showInfo(
     "About KeyPilot",
-    "KeyPilot\\nVersion 1.0\\nYour Keyboard, Your Control.\\n\\n"
+    "KeyPilot\nVersion 1.0\nYour Keyboard, Your Control.\n\n"
     + "A customizable Android keyboard for everyday typing. "
     + "Choose a full PC-style layout or a familiar mobile QWERTY layout, "
     + "personalize themes and key styles, and adjust typing feedback. "
     + "Optional voice typing is available through your device's speech "
-    + "recognition service.\\n\\n"
+    + "recognition service.\n\n"
     + "Support: support.keypilot@gmail.com"));
 content.addView(about, fullWidth());
 

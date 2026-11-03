@@ -412,15 +412,21 @@ public class PCKeyboardService extends InputMethodService {
                 && var == InputType.TYPE_NUMBER_VARIATION_PASSWORD;
     }
 
-    /** No suggestions / learning in password, number, phone and "no suggestions" fields. */
+    /** Hide suggestions only in fields that explicitly disallow them. */
     private boolean noSuggestField() {
         EditorInfo ei = getCurrentInputEditorInfo();
         if (ei == null) return true;
         if (isPasswordField()) return true;
         int cls = ei.inputType & InputType.TYPE_MASK_CLASS;
         if (cls != InputType.TYPE_CLASS_TEXT && cls != 0) return true;
-        if ((ei.inputType & InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) != 0) return true;
-        return (ei.imeOptions & EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0;
+        return (ei.inputType & InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) != 0;
+    }
+
+    /** Respect fields that prohibit personalized typing history. */
+    private boolean noPersonalizedLearningField() {
+        EditorInfo ei = getCurrentInputEditorInfo();
+        return noSuggestField() || (ei != null
+                && (ei.imeOptions & EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0);
     }
 
     // ---------- system keys (volume, media, apps) ----------
@@ -1400,14 +1406,21 @@ public class PCKeyboardService extends InputMethodService {
         String prefix = composingWord.toLowerCase(Locale.ROOT);
         if (prefix.isEmpty() || noSuggestField()) return out;
         boolean cap = Character.isUpperCase(composingWord.charAt(0));
-        for (String w : userWords) {
-            if (out.size() >= 3) break;
-            if (w.startsWith(prefix) && !w.equals(prefix) && !out.contains(w)) out.add(w);
+
+        // Personal learned words only in fields that allow personalization.
+        if (!noPersonalizedLearningField()) {
+            for (String w : userWords) {
+                if (out.size() >= 3) break;
+                if (w.startsWith(prefix) && !w.equals(prefix) && !out.contains(w)) out.add(w);
+            }
         }
+
+        // Generic suggestions remain available in private/no-learning fields.
         for (String w : WORDS) {
             if (out.size() >= 3) break;
             if (w.startsWith(prefix) && !w.equals(prefix) && !out.contains(w)) out.add(w);
         }
+
         if (cap) {
             for (int i = 0; i < out.size(); i++) {
                 String w = out.get(i);
@@ -1474,7 +1487,7 @@ public class PCKeyboardService extends InputMethodService {
     }
 
     private void learnWord(String w) {
-        if (w == null || noSuggestField()) return;
+        if (w == null || noPersonalizedLearningField()) return;
         String word = w.toLowerCase(Locale.ROOT);
         if (word.length() < 3 || !word.matches("[a-z']+")) return;
         userWords.remove(word);
