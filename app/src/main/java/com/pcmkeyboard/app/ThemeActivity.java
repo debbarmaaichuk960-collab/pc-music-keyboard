@@ -20,6 +20,7 @@ import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewOutlineProvider;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -55,7 +56,8 @@ public class ThemeActivity extends Activity {
     private SharedPreferences prefs;
     private ScrollView sv;
     private LinearLayout col;
-    private int page = 0;   // 0 settings, 1 theme, 2 keyboard style
+    private int page = 0;   // 0 settings, 1 theme, 2 keyboard style, 3 premium store
+    private boolean openedFromHome = false;
     private int tileW;
 
     private int dp(float v) {
@@ -70,6 +72,7 @@ public class ThemeActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        openedFromHome = getIntent().getBooleanExtra("open_premium", false);
         getWindow().setStatusBarColor(C_BG);
         getWindow().setNavigationBarColor(C_BG);
 
@@ -90,11 +93,11 @@ public class ThemeActivity extends Activity {
             return ins;
         });
         if (savedInstanceState != null) page = savedInstanceState.getInt("page", 0);
+        else if (openedFromHome) page = 3;
         if (Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, () -> {
-                        if (page != 0) go(0);
-                        else finish();
+                        handleBack();
                     });
         }
         render();
@@ -110,8 +113,13 @@ public class ThemeActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (page != 0) go(0);
-        else super.onBackPressed();
+        handleBack();
+    }
+
+    private void handleBack() {
+        if (page == 3 && openedFromHome) finish();
+        else if (page != 0) go(0);
+        else finish();
     }
 
     @Override
@@ -130,7 +138,8 @@ public class ThemeActivity extends Activity {
         col.removeAllViews();
         if (page == 0) buildSettings();
         else if (page == 1) buildTheme();
-        else buildStyle();
+        else if (page == 2) buildStyle();
+        else buildPremiumStore();
     }
 
     // ---------------- shared UI helpers ----------------
@@ -527,6 +536,138 @@ public class ThemeActivity extends Activity {
         col.addView(row("Privacy Policy",
                 "How KeyPilot handles microphone and keyboard data",
                 v -> showPrivacyPolicyDialog()));
+    }
+
+
+    // ---------------- premium theme store ----------------
+
+    private void buildPremiumStore() {
+        header("Premium Theme Store");
+
+        TextView intro = text(
+                "Wallpaper-based keyboard designs with matching key colours.",
+                14, C_SUB, false);
+        col.addView(intro);
+
+        premiumThemeCard("Royal Gold",
+                "Luxury dark wallpaper with golden highlights.",
+                0xFF160A03, 0xFF78480A, 0xFFFFBE41);
+
+        premiumThemeCard("Neon Motion",
+                "Cyber purple and cyan with optional motion effects.",
+                0xFF0E0526, 0xFF194173, 0xFF46E1FF);
+
+        premiumThemeCard("Galaxy Flow",
+                "Deep space colours with cosmic highlights.",
+                0xFF030A28, 0xFF371464, 0xFF8780FF);
+
+        section("UNLOCK OPTIONS");
+
+        col.addView(row(
+                "Watch 3 rewarded videos",
+                "Complete 3 videos to unlock a premium theme. "
+                + "Rewarded ads will be connected in the next step.",
+                null));
+
+        col.addView(row(
+                "Premium purchase",
+                "Optional one-time paid unlock will be added later.",
+                null));
+
+        col.addView(row(
+                "Your free themes are safe",
+                "All existing themes and personal photo themes remain available.",
+                null));
+    }
+
+    private void premiumThemeCard(
+            String name, String detail, int c1, int c2, int accent) {
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(12), dp(12), dp(12), dp(12));
+        card.setBackground(rect(0xFF2B1B29, 18, accent, 1));
+
+        FrameLayout preview = new FrameLayout(this);
+        GradientDrawable art = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{c1, c2, 0xFF080810});
+        art.setCornerRadius(dp(14));
+        preview.setBackground(art);
+
+        TextView shine = text("✦", 48, accent, true);
+        shine.setGravity(Gravity.CENTER);
+        preview.addView(shine,
+                new FrameLayout.LayoutParams(-1, -1));
+
+        TextView keys = text(
+                "Q  W  E  R  T  Y  U  I  O  P\n"
+                + "A  S  D  F  G  H  J  K  L\n"
+                + "⇧  Z  X  C  V  B  N  M  ⌫",
+                14, Color.WHITE, true);
+        keys.setGravity(Gravity.CENTER);
+        keys.setBackground(rect(0xDD080810, 10, accent, 1));
+
+        FrameLayout.LayoutParams keyParams =
+                new FrameLayout.LayoutParams(-1, dp(88), Gravity.BOTTOM);
+        keyParams.setMargins(dp(10), 0, dp(10), dp(10));
+        preview.addView(keys, keyParams);
+
+        LinearLayout.LayoutParams previewParams =
+                new LinearLayout.LayoutParams(-1, dp(175));
+        previewParams.bottomMargin = dp(10);
+        card.addView(preview, previewParams);
+
+        card.addView(text("♛  " + name + "  •  PREMIUM",
+                17, accent, true));
+
+        TextView description = text(detail, 13, C_SUB, false);
+        description.setPadding(0, dp(5), 0, dp(8));
+        card.addView(description);
+
+        Button previewButton = new Button(this);
+        previewButton.setText("Preview theme");
+        previewButton.setAllCaps(false);
+        previewButton.setTextColor(Color.WHITE);
+        previewButton.setBackground(rect(0xFF493044, 12, accent, 1));
+        previewButton.setOnClickListener(v ->
+                new AlertDialog.Builder(this)
+                        .setTitle(name + " preview")
+                        .setMessage(detail
+                                + "\n\nThis is a visual preview. "
+                                + "The wallpaper and matching keyboard "
+                                + "will be applied after theme assets "
+                                + "are integrated.")
+                        .setPositiveButton("OK", null)
+                        .show());
+        card.addView(previewButton,
+                new LinearLayout.LayoutParams(-1, dp(46)));
+
+        Button unlockButton = new Button(this);
+        unlockButton.setText("Watch 3 ads to unlock");
+        unlockButton.setAllCaps(false);
+        unlockButton.setTextColor(Color.rgb(12, 35, 35));
+        unlockButton.setTypeface(Typeface.DEFAULT_BOLD);
+        unlockButton.setBackground(rect(accent, 12, accent, 1));
+        unlockButton.setOnClickListener(v ->
+                new AlertDialog.Builder(this)
+                        .setTitle("Rewarded Ads setup pending")
+                        .setMessage("Real rewarded video ads are not "
+                                + "connected yet. No progress or theme "
+                                + "unlock will be granted until the real "
+                                + "ad system is integrated.")
+                        .setPositiveButton("OK", null)
+                        .show());
+
+        LinearLayout.LayoutParams unlockParams =
+                new LinearLayout.LayoutParams(-1, dp(46));
+        unlockParams.topMargin = dp(8);
+        card.addView(unlockButton, unlockParams);
+
+        LinearLayout.LayoutParams cardParams =
+                new LinearLayout.LayoutParams(-1, -2);
+        cardParams.bottomMargin = dp(16);
+        col.addView(card, cardParams);
     }
 
     // ---------------- page 1: theme ----------------

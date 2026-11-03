@@ -324,11 +324,11 @@ public class MainActivity extends Activity {
         explore.setTypeface(Typeface.DEFAULT_BOLD);
         premium.addView(explore);
 
-        premium.setOnClickListener(v -> showInfo(
-                "Premium Themes",
-                "Premium wallpaper-based keyboards, motion effects "
-                + "and rewarded unlock options are planned for KeyPilot. "
-                + "The Theme Store is not available yet."));
+        premium.setOnClickListener(v -> {
+            Intent storeIntent = new Intent(this, ThemeActivity.class);
+            storeIntent.putExtra("open_premium", true);
+            startActivity(storeIntent);
+        });
         content.addView(premium, fullWidth());
 
         TextView note = text(
